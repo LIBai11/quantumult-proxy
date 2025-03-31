@@ -1,18 +1,20 @@
 // Quantumult X HTTP Backend 示例脚本
-// 用于演示如何通过代理服务器转发请求
+// 用于演示如何使用请求捕获服务器进行请求捕获和调试
 
-// 代理服务器地址（替换为你的实际地址）
-const PROXY_URL = 'http://your-proxy-server:3000';
+// 捕获服务器地址（替换为你的实际地址）
+const CAPTURE_URL = 'http://your-server:3000';
 
 // 处理 GET 请求
 function handleGetRequest(request) {
-  const targetUrl = "https://api.example.com/data";
-  const proxyUrl = `${PROXY_URL}/?url=${encodeURIComponent(targetUrl)}`;
-  
-  // 转发请求到代理服务器
+  // 发送请求到捕获服务器
   $httpClient.get({
-    url: proxyUrl,
-    headers: request.headers  // 使用原始请求的头部
+    url: `${CAPTURE_URL}/api/captured/get`,
+    headers: {
+      // 添加原始请求的信息作为自定义头部，便于查看
+      'X-Original-URL': request.url,
+      'X-Request-Type': 'GET',
+      ...request.headers  // 使用原始请求的头部
+    }
   }, (error, response, data) => {
     if (error) {
       // 处理错误
@@ -26,12 +28,24 @@ function handleGetRequest(request) {
       return;
     }
     
-    // 返回响应
+    // 解析响应
+    let responseData;
+    try {
+      responseData = JSON.parse(data);
+    } catch (e) {
+      responseData = { error: "解析响应数据失败" };
+    }
+    
+    // 返回捕获结果
     $done({
       response: {
-        status: response.status,
-        headers: response.headers,
-        body: data
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "请求已被捕获",
+          request_id: responseData.request_id || "未知",
+          capture_server: CAPTURE_URL
+        })
       }
     });
   });
@@ -39,14 +53,15 @@ function handleGetRequest(request) {
 
 // 处理 POST 请求
 function handlePostRequest(request) {
-  const targetUrl = "https://api.example.com/data";
-  const proxyUrl = `${PROXY_URL}/?url=${encodeURIComponent(targetUrl)}`;
-  
-  // 转发请求到代理服务器
+  // 将原始请求体转发到捕获服务器
   $httpClient.post({
-    url: proxyUrl,
-    headers: request.headers,
-    body: request.body
+    url: `${CAPTURE_URL}/api/captured/post`,
+    headers: {
+      'X-Original-URL': request.url,
+      'X-Request-Type': 'POST',
+      ...request.headers
+    },
+    body: request.body  // 转发原始请求体
   }, (error, response, data) => {
     if (error) {
       // 处理错误
@@ -60,57 +75,24 @@ function handlePostRequest(request) {
       return;
     }
     
-    // 返回响应
-    $done({
-      response: {
-        status: response.status,
-        headers: response.headers,
-        body: data
-      }
-    });
-  });
-}
-
-// 处理动态目标 URL 的请求
-function handleDynamicRequest(request) {
-  // 从请求URL参数中获取目标URL
-  const urlParams = new URL(request.url);
-  const targetUrl = urlParams.searchParams.get('target');
-  
-  if (!targetUrl) {
-    $done({
-      response: {
-        status: 400,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "缺少目标URL参数" })
-      }
-    });
-    return;
-  }
-  
-  const proxyUrl = `${PROXY_URL}/?url=${encodeURIComponent(targetUrl)}`;
-  
-  // 转发请求到代理服务器
-  $httpClient.get({
-    url: proxyUrl,
-    headers: request.headers
-  }, (error, response, data) => {
-    if (error) {
-      $done({
-        response: {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error: error.message })
-        }
-      });
-      return;
+    // 解析响应
+    let responseData;
+    try {
+      responseData = JSON.parse(data);
+    } catch (e) {
+      responseData = { error: "解析响应数据失败" };
     }
     
+    // 返回捕获结果
     $done({
       response: {
-        status: response.status,
-        headers: response.headers,
-        body: data
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "POST请求已被捕获",
+          request_id: responseData.request_id || "未知",
+          capture_server: CAPTURE_URL
+        })
       }
     });
   });
@@ -121,24 +103,36 @@ function onRequest(request) {
   const urlPath = new URL(request.url).pathname;
   
   // 根据路径路由请求
-  if (urlPath.startsWith('/api/get')) {
+  if (request.method === 'GET') {
     handleGetRequest(request);
-  } else if (urlPath.startsWith('/api/post')) {
+  } else if (request.method === 'POST') {
     handlePostRequest(request);
-  } else if (urlPath.startsWith('/api/dynamic')) {
-    handleDynamicRequest(request);
   } else {
-    // 未知路径，返回 404
-    $done({
-      response: {
-        status: 404,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ error: "路径不存在" })
-      }
+    // 处理其他类型的请求
+    $httpClient.request(request.method, {
+      url: `${CAPTURE_URL}/api/captured/other`,
+      headers: {
+        'X-Original-URL': request.url,
+        'X-Request-Type': request.method,
+        ...request.headers
+      },
+      body: request.body
+    }, (error, response, data) => {
+      // 返回捕获结果
+      $done({
+        response: {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: `${request.method}请求已被捕获`,
+            capture_server: CAPTURE_URL
+          })
+        }
+      });
     });
   }
 }
 
 // QuantumultX HTTP Backend 入口点
-// 配置示例：https://raw.githubusercontent.com/your-repo/example-script.js, tag=示例脚本, path=^/api/, enabled=true
-$done({ response: { body: JSON.stringify({ message: "脚本已启动" }) } }); 
+// 配置示例：https://raw.githubusercontent.com/your-repo/example-script.js, tag=请求捕获脚本, path=^/api/, enabled=true
+$done({ response: { body: JSON.stringify({ message: "请求捕获脚本已启动" }) } }); 

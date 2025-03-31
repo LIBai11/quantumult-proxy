@@ -1,6 +1,7 @@
 import express from 'express';
-import axios from 'axios';
 import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 import { createLogger, format, transports } from 'winston';
 import dotenv from 'dotenv';
 
@@ -10,10 +11,13 @@ dotenv.config();
 const app = express();
 const port = process.env.PORT || 3000;
 const logLevel = process.env.LOG_LEVEL || 'info';
-const requestTimeout = parseInt(process.env.REQUEST_TIMEOUT || '30000', 10);
-const maxRedirects = parseInt(process.env.MAX_REDIRECTS || '5', 10);
 const bodyLimit = process.env.BODY_LIMIT || '10mb';
-const verboseLogging = process.env.VERBOSE_LOGGING === 'true';
+
+// 确保存储目录存在
+const requestsDir = path.join(process.cwd(), 'requests');
+if (!fs.existsSync(requestsDir)) {
+  fs.mkdirSync(requestsDir, { recursive: true });
+}
 
 // 创建日志记录器
 const logger = createLogger({
@@ -32,6 +36,8 @@ const logger = createLogger({
 
 // 中间件
 app.use(express.json({ limit: bodyLimit }));
+app.use(express.text({ limit: bodyLimit }));
+app.use(express.raw({ limit: bodyLimit, type: () => true })); // 处理其他类型的请求
 app.use(express.urlencoded({ extended: true, limit: bodyLimit }));
 app.use(cors());
 
@@ -54,118 +60,59 @@ app.get('/health', (req, res) => {
   });
 });
 
-// 版本信息端点
-app.get('/version', (req, res) => {
-  res.status(200).json({
-    name: 'quantumult-proxy',
-    version: '1.0.0',
-    description: '代理服务器，用于代理 Quantumultx 的 HTTP Backend 请求'
+// 请求统计端点
+app.get('/stats', (req, res) => {
+  fs.readdir(requestsDir, (err, files) => {
+    if (err) {
+      return res.status(500).json({ error: '无法读取请求目录', message: err.message });
+    }
+    res.status(200).json({
+      total_requests: files.length,
+      latest_request: files.length > 0 ? new Date(Math.max(...files.map(file => 
+        fs.statSync(path.join(requestsDir, file)).mtime
+      ))).toISOString() : null
+    });
   });
 });
 
-// 代理所有请求
+// 捕获所有请求
 app.all('*', async (req, res) => {
-  const targetUrl = req.query.url || req.headers['x-target-url'];
-  
-  if (!targetUrl) {
-    return res.status(400).json({ error: '缺少目标URL参数' });
-  }
-
   try {
-    logger.info(`代理请求: ${req.method} ${targetUrl}`);
+    // 生成唯一请求ID
+    const requestId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 15);
     
-    if (verboseLogging) {
-      logger.debug(`请求头: ${JSON.stringify(req.headers)}`);
-      if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
-        logger.debug(`请求体: ${JSON.stringify(req.body)}`);
-      }
-    }
-    
-    // 准备请求头
-    const headers = { ...req.headers };
-    
-    // 移除代理特定的头部
-    delete headers.host;
-    delete headers['x-target-url'];
-    
-    // 准备请求配置
-    const config = {
+    // 构造请求对象
+    const requestData = {
+      id: requestId,
+      timestamp: new Date().toISOString(),
       method: req.method,
-      url: targetUrl,
-      headers,
-      // 设置超时时间（毫秒）
-      timeout: requestTimeout,
-      // 允许重定向
-      maxRedirects,
+      url: req.url,
+      path: req.path,
+      params: req.params,
+      query: req.query,
+      headers: req.headers,
+      body: req.body,
+      ip: req.ip,
+      originalUrl: req.originalUrl
     };
     
-    // 添加请求体
-    if (['POST', 'PUT', 'PATCH'].includes(req.method)) {
-      config.data = req.body;
-    }
-
-    // 添加查询参数（如果原始URL中有）
-    if (req.query && Object.keys(req.query).length > 0) {
-      // 排除'url'参数，因为它是用于指定目标URL的
-      const queryParams = { ...req.query };
-      delete queryParams.url;
-      
-      if (Object.keys(queryParams).length > 0) {
-        config.params = queryParams;
-      }
-    }
+    // 保存请求
+    const filename = path.join(requestsDir, `${requestId}.json`);
+    fs.writeFileSync(filename, JSON.stringify(requestData, null, 2));
     
-    // 发送请求
-    const response = await axios(config);
+    logger.info(`请求已捕获并保存: ${requestId}`);
     
-    // 设置响应状态码和头部
-    res.status(response.status);
-    
-    // 设置响应头
-    for (const [key, value] of Object.entries(response.headers)) {
-      // 跳过某些响应头，以避免冲突
-      if (!['content-length', 'connection', 'keep-alive', 'transfer-encoding'].includes(key.toLowerCase())) {
-        res.setHeader(key, value);
-      }
-    }
-    
-    if (verboseLogging) {
-      logger.debug(`响应状态: ${response.status}`);
-      logger.debug(`响应头: ${JSON.stringify(response.headers)}`);
-    }
-    
-    // 发送响应体
-    return res.send(response.data);
+    // 返回确认信息
+    return res.status(200).json({ 
+      message: '请求已捕获',
+      request_id: requestId
+    });
   } catch (error) {
-    logger.error(`代理请求错误: ${error.message}`);
-    
-    if (verboseLogging && error.config) {
-      logger.debug(`请求配置: ${JSON.stringify(error.config)}`);
-    }
-    
-    // 如果有响应，返回原始错误状态和数据
-    if (error.response) {
-      logger.error(`错误状态码: ${error.response.status}`);
-      
-      // 设置响应头
-      for (const [key, value] of Object.entries(error.response.headers || {})) {
-        if (!['content-length', 'connection', 'keep-alive', 'transfer-encoding'].includes(key.toLowerCase())) {
-          res.setHeader(key, value);
-        }
-      }
-      
-      res.status(error.response.status).send(error.response.data);
-    } else if (error.code === 'ECONNABORTED') {
-      res.status(504).json({
-        error: '代理请求超时',
-        message: `请求超时（${requestTimeout}ms）`
-      });
-    } else {
-      res.status(500).json({
-        error: '代理请求失败',
-        message: error.message
-      });
-    }
+    logger.error(`捕获请求错误: ${error.message}`);
+    return res.status(500).json({
+      error: '捕获请求失败',
+      message: error.message
+    });
   }
 });
 
@@ -181,9 +128,8 @@ process.on('unhandledRejection', (reason, promise) => {
 
 // 启动服务器
 app.listen(port, () => {
-  logger.info(`代理服务器正在运行，端口: ${port}`);
-  logger.info(`超时设置: ${requestTimeout}ms, 最大重定向: ${maxRedirects}`);
+  logger.info(`请求捕获服务器正在运行，端口: ${port}`);
   logger.info(`请求体大小限制: ${bodyLimit}`);
   logger.info(`日志级别: ${logLevel}`);
-  logger.info(`详细日志记录: ${verboseLogging ? '已启用' : '已禁用'}`);
+  logger.info(`请求保存目录: ${requestsDir}`);
 }); 

@@ -1,21 +1,20 @@
-# Quantumult X HTTP Backend 代理服务器
+# Quantumult X HTTP Backend 请求捕获服务器
 
-这是一个用于代理 Quantumult X HTTP Backend 请求的服务器。它可以将请求转发到指定的目标 URL，并返回响应结果。
+这是一个简单的服务器，用于捕获所有发送到它的 HTTP 请求并将它们保存到文件中。特别适合用于 Quantumult X HTTP Backend 请求的调试和分析。
 
 ## 功能特性
 
-- 支持所有 HTTP 方法（GET, POST, PUT, DELETE 等）
-- 自动转发请求头和请求体
-- 完整的日志记录
-- 支持通过查询参数或请求头指定目标 URL
-- 可配置的超时和重定向设置
+- 捕获所有 HTTP 方法的请求（GET, POST, PUT, DELETE 等）
+- 保存完整的请求信息（包括头部、查询参数、请求体等）
+- 为每个请求生成唯一 ID
+- 支持查看请求统计信息
 - 健康检查端点
 
 ## 安装
 
 ```bash
 # 克隆仓库
-git clone <repository-url>
+git clone https://github.com/你的用户名/quantumult-proxy.git
 cd quantumult-proxy
 
 # 安装依赖
@@ -36,20 +35,12 @@ npm run dev
 
 默认情况下，服务器将在端口 3000 上运行。可以通过设置环境变量 `PORT` 来更改端口。
 
-### 发送请求
+### 查看请求统计
 
-有两种方式指定目标 URL：
-
-1. 通过查询参数：
+访问 `/stats` 端点可以查看请求统计信息：
 
 ```
-http://localhost:3000/?url=https://example.com/api/data
-```
-
-2. 通过请求头：
-
-```
-X-Target-URL: https://example.com/api/data
+http://localhost:3000/stats
 ```
 
 ### 在 Quantumult X 中使用
@@ -61,16 +52,15 @@ X-Target-URL: https://example.com/api/data
 https://raw.githubusercontent.com/your-repo/your-script.js, tag=Your Script, path=^/your-path/, enabled=true
 ```
 
-2. 在 JavaScript 脚本中使用代理服务器：
+2. 在 JavaScript 脚本中将请求发送到捕获服务器：
 
 ```javascript
-// 示例：在 Quantumult X HTTP Backend 脚本中使用代理
-const proxyUrl = 'http://your-proxy-server:3000';
-const targetUrl = 'https://example.com/api/data';
+// 示例：在 Quantumult X HTTP Backend 脚本中使用捕获服务器
+const captureServerUrl = 'http://your-server:3000';
 
 // 发送请求
 $httpClient.get({
-  url: `${proxyUrl}/?url=${encodeURIComponent(targetUrl)}`,
+  url: captureServerUrl + '/any/path',
   headers: {
     // 你的请求头
   }
@@ -79,14 +69,66 @@ $httpClient.get({
 });
 ```
 
+## 保存的请求格式
+
+每个请求将被保存为 JSON 文件，包含以下信息：
+
+```json
+{
+  "id": "1620000000000-abcdef123456",
+  "timestamp": "2023-01-01T12:00:00.000Z",
+  "method": "GET",
+  "url": "/api/data",
+  "path": "/api/data",
+  "params": {},
+  "query": { "param1": "value1" },
+  "headers": { "user-agent": "...", ... },
+  "body": { ... },
+  "ip": "127.0.0.1",
+  "originalUrl": "/api/data?param1=value1"
+}
+```
+
 ## 配置项
 
-可以通过修改 `src/index.js` 文件来调整以下配置：
+可以通过环境变量或 `.env` 文件配置以下选项：
 
-- 超时时间（默认：30000 毫秒）
-- 最大重定向次数（默认：5）
-- 请求体大小限制（默认：10MB）
+- `PORT`: 服务器端口（默认：3000）
+- `LOG_LEVEL`: 日志级别（默认：info）
+- `BODY_LIMIT`: 请求体大小限制（默认：10mb）
 
-## 日志
+## 部署
 
-日志将同时输出到控制台和 `proxy.log` 文件中，记录每个请求的方法、URL、状态码和响应时间。 
+### 使用 Docker
+
+```bash
+# 构建 Docker 镜像
+docker build -t quantumult-proxy .
+
+# 运行容器
+docker run -d -p 3000:3000 --name quantumult-proxy quantumult-proxy
+```
+
+### 使用 Railway
+
+1. Fork 这个仓库到你的 GitHub 账号
+2. 访问 https://railway.app/
+3. 选择 "Deploy from GitHub repo"
+4. 选择你 fork 的仓库
+5. Railway 会自动部署应用
+
+### 使用 Heroku
+
+```bash
+# 安装 Heroku CLI
+brew install heroku/brew/heroku
+
+# 登录 Heroku
+heroku login
+
+# 创建 Heroku 应用
+heroku create quantumult-proxy
+
+# 推送代码到 Heroku
+git push heroku main
+``` 

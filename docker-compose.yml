@@ -12,6 +12,7 @@ services:
       - "3000:3000"
     volumes:
       - ./logs:/app/logs
+      - ./requests:/app/requests
     environment:
       - PORT=3000
       - LOG_LEVEL=info

@@ -12,9 +12,12 @@ RUN npm ci --production
 # 复制源代码
 COPY . .
 
-# 创建日志目录并设置权限
-RUN mkdir -p /var/log/proxy && \
-    chown -R node:node /var/log/proxy /app
+# 创建日志和请求保存目录并设置权限
+RUN mkdir -p /var/log/proxy /app/requests && \
+    chown -R node:node /var/log/proxy /app /app/requests
+
+# 设置数据卷
+VOLUME ["/app/requests"]
 
 # 暴露端口
 EXPOSE 3000
