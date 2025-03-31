@@ -1,0 +1,29 @@
+{
+  "name": "quantumult-proxy",
+  "version": "1.0.0",
+  "description": "代理服务器，用于代理 Quantumultx 的 HTTP Backend 请求",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "nodemon src/index.js"
+  },
+  "keywords": [
+    "proxy",
+    "quantumultx",
+    "http",
+    "backend"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "axios": "^1.7.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.4",
+    "express": "^4.21.2",
+    "winston": "^3.11.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.0"
+  }
+} 
