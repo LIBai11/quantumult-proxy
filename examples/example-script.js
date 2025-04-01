@@ -2,7 +2,7 @@
 // 用于演示如何使用请求捕获服务器进行请求捕获和调试
 
 // 捕获服务器地址（替换为你的实际地址）
-const CAPTURE_URL = 'https://fr65q6w3-3000.asse.devtunnels.ms/';
+const CAPTURE_URL = 'https://e964-223-70-84-112.ngrok-free.app/';
 
 // 处理 GET 请求
 function handleGetRequest(request) {
