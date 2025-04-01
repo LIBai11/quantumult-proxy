@@ -1,0 +1,48 @@
+{
+  "id": "quantumult.proxy.debug",
+  "name": "Quantumult X 请求捕获",
+  "author": "@你的用户名",
+  "icon": "https://raw.githubusercontent.com/Orz-3/mini/master/Color/quantumultx.png",
+  "repo": "https://github.com/你的用户名/quantumult-proxy",
+  "apps": [
+    {
+      "id": "qx_debug",
+      "name": "QX请求捕获调试",
+      "desc": "Quantumult X HTTP Backend 请求捕获脚本调试工具",
+      "keys": ["qx_debug_log", "qx_debug_config"],
+      "settings": [
+        {
+          "id": "qx_debug_server",
+          "name": "捕获服务器地址",
+          "val": "http://your-server:3000",
+          "type": "text",
+          "desc": "设置请求捕获服务器的URL地址"
+        },
+        {
+          "id": "qx_debug_enabled",
+          "name": "启用调试日志",
+          "val": true,
+          "type": "boolean",
+          "desc": "是否启用详细调试日志"
+        },
+        {
+          "id": "qx_debug_log",
+          "name": "调试日志",
+          "type": "textarea",
+          "autoGrow": true,
+          "rows": 10,
+          "val": "",
+          "placeholder": "调试日志将显示在这里，点击清除按钮可以清空日志",
+          "desc": "脚本运行的调试日志记录"
+        }
+      ],
+      "author": "@你的用户名",
+      "repo": "https://github.com/你的用户名/quantumult-proxy",
+      "icons": [
+        "https://raw.githubusercontent.com/Orz-3/mini/master/Alpha/quantumultx.png",
+        "https://raw.githubusercontent.com/Orz-3/mini/master/Color/quantumultx.png"
+      ],
+      "script": "https://raw.githubusercontent.com/你的用户名/quantumult-proxy/main/examples/boxjs-script.js"
+    }
+  ]
+} 
