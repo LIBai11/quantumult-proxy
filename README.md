@@ -12,6 +12,7 @@
 - 为每个请求生成唯一 ID
 - 支持查看请求统计信息
 - 健康检查端点
+- **新增：通过重写（rewrite）功能捕获所有请求和响应数据**
 
 ## 安装
 
@@ -48,6 +49,8 @@ http://localhost:3000/stats
 
 ### 在 Quantumult X 中使用
 
+#### HTTP Backend 方式（仅捕获请求）
+
 1. 在 Quantumult X 的配置文件中添加以下内容：
 
 ```
@@ -72,6 +75,18 @@ $httpClient.get({
 });
 ```
 
+#### 重写方式（同时捕获请求和响应）
+
+1. 在 Quantumult X 的配置文件中添加以下内容：
+
+```
+[rewrite_local]
+^http(s?)://.* url script-request-header https://raw.githubusercontent.com/你的用户名/quantumult-proxy/main/examples/rewrite-capture.js
+^http(s?)://.* url script-response-body https://raw.githubusercontent.com/你的用户名/quantumult-proxy/main/examples/rewrite-capture.js
+```
+
+2. 详细使用说明请参考 [重写捕获功能使用指南](./examples/rewrite-usage-guide.md)
+
 ## 保存的请求格式
 
 每个请求将被保存为 JSON 文件，包含以下信息：
@@ -89,6 +104,20 @@ $httpClient.get({
   "body": { ... },
   "ip": "127.0.0.1",
   "originalUrl": "/api/data?param1=value1"
+}
+```
+
+重写捕获的响应数据格式：
+
+```json
+{
+  "request_id": "req_1620000000000_abcdef123456",
+  "timestamp": "2023-01-01T12:00:00.000Z",
+  "url": "https://example.com/api/data",
+  "status": 200,
+  "headers": { "content-type": "application/json", ... },
+  "body": { ... },
+  "body_size": 1024
 }
 ```
 

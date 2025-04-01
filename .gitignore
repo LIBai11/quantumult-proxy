@@ -28,4 +28,6 @@ Thumbs.db
 
 # 构建输出
 dist/
-build/ 
+build/
+
+requests

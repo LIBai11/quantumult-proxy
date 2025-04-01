@@ -1,138 +1,85 @@
-// Quantumult X HTTP Backend 示例脚本
-// 用于演示如何使用请求捕获服务器进行请求捕获和调试
+/**
+* @fileoverview Example to deploy a HTTP backend and capture incoming requests.
+*
+* [http_backend]
+* https://raw.githubusercontent.com/crossutility/Quantumult-X/master/sample-backend.js, tag=Backend Example, path=^/example/v1/
+*
+* You can visit through http://quantumult-x:9999/example/v1/ or http://127.0.0.1:9999/example/v1/ or http://localhost:9999/example/v1/
+* You can also deploy a lot of different backends for your own usage, such as remote resource combination backend, task perferences manager backend, file converting backend ...
+* The requests only will be sent to the related backends with the matching (regex) path.
+* Further more you can use a signature or any other validation method to verify if the request is legitimate or not.
+* Since the NE has the memory limitation, you should keep the backend as tiny as possible.
+*
+* @supported Quantumult X (v1.0.14-build358)
+*/
 
-// 捕获服务器地址（替换为你的实际地址）
-const CAPTURE_URL = 'https://fr65q6w3-3000.asse.devtunnels.ms/';
+// 需要捕获的请求信息
+const captureServerUrl = 'https://upward-gibbon-genuinely.ngrok-free.app';
 
-// 处理 GET 请求
-function handleGetRequest(request) {
-  // 发送请求到捕获服务器
-  $httpClient.get({
-    url: `${CAPTURE_URL}/api/captured/get`,
-    headers: {
-      // 添加原始请求的信息作为自定义头部，便于查看
-      'X-Original-URL': request.url,
-      'X-Request-Type': 'GET',
-      ...request.headers  // 使用原始请求的头部
-    }
-  }, (error, response, data) => {
-    if (error) {
-      // 处理错误
-      $done({
-        response: {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error: error.message })
-        }
-      });
-      return;
-    }
-    
-    // 解析响应
-    let responseData;
-    try {
-      responseData = JSON.parse(data);
-    } catch (e) {
-      responseData = { error: "解析响应数据失败" };
-    }
-    
-    // 返回捕获结果
-    $done({
-      response: {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: "请求已被捕获",
-          request_id: responseData.request_id || "未知",
-          capture_server: CAPTURE_URL
-        })
-      }
-    });
-  });
+// 获取当前时间
+function getCurrentTime() {
+  return new Date().toISOString();
 }
 
-// 处理 POST 请求
-function handlePostRequest(request) {
-  // 将原始请求体转发到捕获服务器
-  $httpClient.post({
-    url: `${CAPTURE_URL}/api/captured/post`,
+// 记录日志信息
+function logRequestInfo(request) {
+  console.log(`[${getCurrentTime()}] 请求路径: ${request.path}`);
+  console.log(`[${getCurrentTime()}] 请求方法: ${request.method}`);
+  console.log(`[${getCurrentTime()}] 请求头: ${JSON.stringify(request.headers)}`);
+  console.log(`[${getCurrentTime()}] 请求体: ${request.body ? request.body : '无请求体'}`);
+}
+
+// 创建响应数据
+function createResponse(request) {
+  const responseBody = {
+    success: true,
+    message: "请求已成功捕获",
+    timestamp: getCurrentTime(),
+    path: request.path,
+    method: request.method,
+    capture_server: captureServerUrl,
+  };
+
+  return {
+    status: 200,
     headers: {
-      'X-Original-URL': request.url,
-      'X-Request-Type': 'POST',
-      ...request.headers
+      "Content-Type": "application/json",
+      "Connection": "Close",
     },
-    body: request.body  // 转发原始请求体
-  }, (error, response, data) => {
-    if (error) {
-      // 处理错误
-      $done({
-        response: {
-          status: 500,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ error: error.message })
-        }
-      });
-      return;
-    }
-    
-    // 解析响应
-    let responseData;
-    try {
-      responseData = JSON.parse(data);
-    } catch (e) {
-      responseData = { error: "解析响应数据失败" };
-    }
-    
-    // 返回捕获结果
-    $done({
-      response: {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          message: "POST请求已被捕获",
-          request_id: responseData.request_id || "未知",
-          capture_server: CAPTURE_URL
-        })
-      }
-    });
-  });
+    body: JSON.stringify(responseBody),
+  };
 }
 
-// 主入口点 - 路由请求
-function onRequest(request) {
-  const urlPath = new URL(request.url).pathname;
-  
-  // 根据路径路由请求
-  if (request.method === 'GET') {
-    handleGetRequest(request);
-  } else if (request.method === 'POST') {
-    handlePostRequest(request);
-  } else {
-    // 处理其他类型的请求
-    $httpClient.request(request.method, {
-      url: `${CAPTURE_URL}/api/captured/other`,
-      headers: {
-        'X-Original-URL': request.url,
-        'X-Request-Type': request.method,
-        ...request.headers
-      },
-      body: request.body
-    }, (error, response, data) => {
-      // 返回捕获结果
-      $done({
-        response: {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: `${request.method}请求已被捕获`,
-            capture_server: CAPTURE_URL
-          })
-        }
-      });
+// HTTP Backend 入口点
+if ($request) {
+  try {
+    // 捕获请求信息
+    logRequestInfo($request);
+
+    // 创建并返回响应
+    const response = createResponse($request);
+    $done(response);
+  } catch (error) {
+    console.log(`[ERROR] 处理请求失败: ${error.message}`);
+    $done({
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        error: "处理请求失败",
+        message: error.message,
+        timestamp: getCurrentTime(),
+      }),
     });
   }
+} else {
+  // 如果没有请求，返回一个简单的初始化响应
+  $done({
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: "捕获脚本已启动，等待请求...",
+      timestamp: getCurrentTime(),
+      version: "1.0.0",
+    }),
+  });
 }
-
-// QuantumultX HTTP Backend 入口点
-// 配置示例：https://raw.githubusercontent.com/your-repo/example-script.js, tag=请求捕获脚本, path=^/api/, enabled=true
-$done({ response: { body: JSON.stringify({ message: "请求捕获脚本已启动" }) } }); 
