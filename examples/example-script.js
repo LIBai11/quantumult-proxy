@@ -2,7 +2,7 @@
 // 用于演示如何使用请求捕获服务器进行请求捕获和调试
 
 // 捕获服务器地址（替换为你的实际地址）
-const CAPTURE_URL = 'http://your-server:3000';
+const CAPTURE_URL = 'https://fr65q6w3-3000.asse.devtunnels.ms/';
 
 // 处理 GET 请求
 function handleGetRequest(request) {

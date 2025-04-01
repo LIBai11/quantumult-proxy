@@ -1,5 +1,8 @@
 # Quantumult X HTTP Backend 请求捕获服务器
 
+[![Docker镜像构建](https://github.com/你的用户名/quantumult-proxy/actions/workflows/docker-image.yml/badge.svg)](https://github.com/你的用户名/quantumult-proxy/actions/workflows/docker-image.yml)
+[![构建并部署](https://github.com/你的用户名/quantumult-proxy/actions/workflows/ci.yml/badge.svg)](https://github.com/你的用户名/quantumult-proxy/actions/workflows/ci.yml)
+
 这是一个简单的服务器，用于捕获所有发送到它的 HTTP 请求并将它们保存到文件中。特别适合用于 Quantumult X HTTP Backend 请求的调试和分析。
 
 ## 功能特性
@@ -49,7 +52,7 @@ http://localhost:3000/stats
 
 ```
 [http_backend]
-https://raw.githubusercontent.com/your-repo/your-script.js, tag=Your Script, path=^/your-path/, enabled=true
+https://raw.githubusercontent.com/你的用户名/quantumult-proxy/main/examples/example-script.js, tag=请求捕获, path=^/api/, enabled=true
 ```
 
 2. 在 JavaScript 脚本中将请求发送到捕获服务器：
@@ -100,6 +103,16 @@ $httpClient.get({
 ## 部署
 
 ### 使用 Docker
+
+```bash
+# 从GitHub容器仓库拉取
+docker pull ghcr.io/你的用户名/quantumult-proxy:latest
+
+# 运行容器
+docker run -d -p 3000:3000 -v ./requests:/app/requests --name quantumult-proxy ghcr.io/你的用户名/quantumult-proxy:latest
+```
+
+### 本地构建并运行
 
 ```bash
 # 构建 Docker 镜像
