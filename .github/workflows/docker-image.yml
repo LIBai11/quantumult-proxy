@@ -34,7 +34,7 @@ jobs:
       # 登录到GitHub容器仓库GHCR
       - name: 登录到容器仓库
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
