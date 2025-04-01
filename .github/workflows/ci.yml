@@ -37,7 +37,7 @@ jobs:
 
       # 设置Docker Buildx
       - name: 设置Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
       # 登录到DockerHub
       - name: 登录到DockerHub
