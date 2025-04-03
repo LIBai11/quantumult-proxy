@@ -101,7 +101,9 @@ function sendToCaptureServer(data, path) {
         'Content-Type': 'application/json',
         'User-Agent': 'QuantumultX/1.0',
         'X-Capture-Source': 'rewrite-script',
-        'X-Capture-Time': getCurrentTime()
+        'X-Capture-Time': getCurrentTime(),
+        'X-Capture': 'true',
+        'X-Quantumult-Capture': 'true'
       },
       body: JSON.stringify(data)
     }).then(response => {
