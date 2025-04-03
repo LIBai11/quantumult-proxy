@@ -176,8 +176,8 @@ function handleRequestCapture() {
       log(`添加请求ID到自定义头: ${requestId}`);
     }
 
-    // 发送请求信息到捕获服务器
-    sendToCaptureServer(requestInfo, '/api/capture/request');
+    // 不发送请求信息到捕获服务器
+    // sendToCaptureServer(requestInfo, '/api/capture/request');
 
     log(`请求处理完成: ${requestId}`);
 
