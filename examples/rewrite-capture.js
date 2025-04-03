@@ -56,7 +56,7 @@ function isStaticResource(url) {
   // 检查扩展名
   for (const ext of staticExtensions) {
     // 检查URL是否以扩展名结尾 或 包含 扩展名+查询参数
-    if (lowerUrl.endsWith(ext) || lowerUrl.includes(`${ext}?`)) {
+    if (lowerUrl.includes(`${ext}`)) {
       return true;
     }
   }

@@ -62,6 +62,29 @@ logger.info(`请求保存目录: ${requestsDir}`);
 logger.info(`日志目录: ${logsDir}`);
 logger.info(`环境变量: PORT=${port}, LOG_LEVEL=${logLevel}, BODY_LIMIT=${bodyLimit}`);
 
+// 添加请求ID计数器用于处理同一时间点的多个请求
+let requestCounter = 0;
+
+/**
+ * 生成易读的请求ID
+ * 格式: YYYYMMDD_HHMMSS_XXX (XXX为计数器以避免冲突)
+ */
+function generateRequestId() {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  const hours = String(now.getHours()).padStart(2, '0');
+  const minutes = String(now.getMinutes()).padStart(2, '0');
+  const seconds = String(now.getSeconds()).padStart(2, '0');
+  
+  // 每次生成ID时增加计数器
+  requestCounter = (requestCounter + 1) % 1000;
+  const counter = String(requestCounter).padStart(3, '0');
+  
+  return `${year}${month}${day}_${hours}${minutes}${seconds}_${counter}`;
+}
+
 // 中间件
 app.use((req, res, next) => {
   logger.debug(`收到请求: ${req.method} ${req.url}`);
@@ -108,7 +131,7 @@ app.use(cors({
 // 请求日志中间件
 app.use((req, res, next) => {
   const start = Date.now();
-  const requestId = Date.now().toString() + '-' + Math.random().toString(36).substring(2, 15);
+  const requestId = generateRequestId();
   
   // 为每个请求添加ID，便于跟踪
   req.requestId = requestId;
@@ -144,10 +167,19 @@ app.use((req, res, next) => {
   next();
 });
 
+// 服务静态文件 - 静态文件服务应放在API路由之前
+app.use(express.static(path.join(process.cwd(), 'public')));
+
+// 主页重定向到静态页面
+app.get('/', (req, res) => {
+  res.redirect('/index.html');
+});
+
+// API路由
 // 重写请求捕获端点
 app.post('/capture/request', (req, res) => {
   try {
-    const requestId = req.requestId || (Date.now().toString() + '-' + Math.random().toString(36).substring(2, 15));
+    const requestId = req.requestId || generateRequestId();
     logger.info(`[${requestId}] 接收到重写脚本请求捕获: ${req.body.method} ${req.body.url}`);
     
     // 保存捕获的请求信息
@@ -188,7 +220,7 @@ app.post('/capture/request', (req, res) => {
 // 重写响应捕获端点
 app.post('/capture/response', (req, res) => {
   try {
-    const requestId = req.requestId || (Date.now().toString() + '-' + Math.random().toString(36).substring(2, 15));
+    const requestId = req.requestId || generateRequestId();
     logger.info(`[${requestId}] 接收到重写脚本响应捕获: ${req.body.url}`);
     
     // 保存捕获的响应信息
@@ -311,6 +343,62 @@ app.get('/request/:id', (req, res) => {
   const requestId = req.params.id;
   logger.debug(`[${req.requestId}] 获取请求详情: ${requestId}`);
   
+  // 特殊处理清空所有请求的操作
+  if (requestId === 'clear-all' && req.query.action === 'delete_all') {
+    logger.debug(`[${req.requestId}] 尝试清空所有请求`);
+    
+    fs.readdir(requestsDir, (err, files) => {
+      if (err) {
+        logger.error(`[${req.requestId}] 读取请求目录失败: ${err.message}`);
+        return res.status(500).json({ error: '无法读取请求目录', message: err.message });
+      }
+      
+      // 筛选JSON文件
+      const jsonFiles = files.filter(file => file.endsWith('.json'));
+      let deletedCount = 0;
+      let errorCount = 0;
+      
+      if (jsonFiles.length === 0) {
+        return res.status(200).json({ 
+          success: true, 
+          message: '没有请求需要删除',
+          stats: { total: 0, deleted: 0, error: 0 }
+        });
+      }
+      
+      // 使用Promise.all批量删除文件
+      const deletePromises = jsonFiles.map(file => {
+        return new Promise((resolve) => {
+          const filePath = path.join(requestsDir, file);
+          fs.unlink(filePath, (err) => {
+            if (err) {
+              logger.error(`[${req.requestId}] 删除文件失败: ${file}, 错误: ${err.message}`);
+              errorCount++;
+            } else {
+              logger.info(`[${req.requestId}] 删除文件成功: ${file}`);
+              deletedCount++;
+            }
+            resolve();
+          });
+        });
+      });
+      
+      Promise.all(deletePromises).then(() => {
+        logger.info(`[${req.requestId}] 清空请求完成，成功: ${deletedCount}, 失败: ${errorCount}`);
+        res.status(200).json({
+          success: true,
+          message: `删除了 ${deletedCount} 个请求文件`,
+          stats: {
+            total: jsonFiles.length,
+            deleted: deletedCount,
+            error: errorCount
+          }
+        });
+      });
+    });
+    return;
+  }
+  
   const filePath = path.join(requestsDir, `${requestId}.json`);
   
   fs.readFile(filePath, 'utf8', (err, data) => {
@@ -370,13 +458,122 @@ app.get('/requests', (req, res) => {
   });
 });
 
-// 捕获所有请求
-app.all('*', async (req, res) => {
-  try {
-    // 生成唯一请求ID
-    const requestId = req.requestId || (Date.now().toString() + '-' + Math.random().toString(36).substring(2, 15));
+// 删除指定请求
+app.delete('/request/:id', (req, res) => {
+  const requestId = req.params.id;
+  logger.debug(`[${req.requestId}] 尝试删除请求: ${requestId}`);
+  
+  const filePath = path.join(requestsDir, `${requestId}.json`);
+  
+  fs.unlink(filePath, (err) => {
+    if (err) {
+      if (err.code === 'ENOENT') {
+        logger.warn(`[${req.requestId}] 尝试删除不存在的请求: ${requestId}`);
+        return res.status(404).json({ error: '请求不存在', message: `找不到ID为 ${requestId} 的请求` });
+      }
+      
+      logger.error(`[${req.requestId}] 删除请求文件失败: ${err.message}`);
+      return res.status(500).json({ error: '删除请求文件失败', message: err.message });
+    }
     
-    logger.debug(`[${requestId}] 开始捕获请求: ${req.method} ${req.originalUrl}`);
+    logger.info(`[${req.requestId}] 删除请求文件成功: ${requestId}`);
+    res.status(200).json({ success: true });
+  });
+});
+
+// 清空所有请求
+app.delete('/requests', (req, res) => {
+  logger.debug(`[${req.requestId}] 尝试清空所有请求`);
+  
+  fs.readdir(requestsDir, (err, files) => {
+    if (err) {
+      logger.error(`[${req.requestId}] 读取请求目录失败: ${err.message}`);
+      return res.status(500).json({ error: '无法读取请求目录', message: err.message });
+    }
+    
+    // 筛选JSON文件
+    const jsonFiles = files.filter(file => file.endsWith('.json'));
+    let deletedCount = 0;
+    let errorCount = 0;
+    
+    if (jsonFiles.length === 0) {
+      return res.status(200).json({ 
+        success: true, 
+        message: '没有请求需要删除',
+        stats: { total: 0, deleted: 0, error: 0 }
+      });
+    }
+    
+    // 使用Promise.all批量删除文件
+    const deletePromises = jsonFiles.map(file => {
+      return new Promise((resolve) => {
+        const filePath = path.join(requestsDir, file);
+        fs.unlink(filePath, (err) => {
+          if (err) {
+            logger.error(`[${req.requestId}] 删除文件失败: ${file}, 错误: ${err.message}`);
+            errorCount++;
+          } else {
+            logger.info(`[${req.requestId}] 删除文件成功: ${file}`);
+            deletedCount++;
+          }
+          resolve();
+        });
+      });
+    });
+    
+    Promise.all(deletePromises).then(() => {
+      logger.info(`[${req.requestId}] 清空请求完成，成功: ${deletedCount}, 失败: ${errorCount}`);
+      res.status(200).json({
+        success: true,
+        message: `删除了 ${deletedCount} 个请求文件`,
+        stats: {
+          total: jsonFiles.length,
+          deleted: deletedCount,
+          error: errorCount
+        }
+      });
+    });
+  });
+});
+
+// 捕获所有请求 - 放在所有API路由后面
+app.all('*', async (req, res, next) => {
+  try {
+    // 检查请求路径是否是前端应用或已处理的API路径
+    const isWebOrApiPath = req.path === '/' || 
+                          req.path.startsWith('/index.html') || 
+                          req.path.startsWith('/styles.css') || 
+                          req.path.startsWith('/app.js') || 
+                          req.path.startsWith('/capture/') || 
+                          req.path.startsWith('/request/') || 
+                          req.path.startsWith('/requests') || 
+                          req.path.startsWith('/stats') || 
+                          req.path.startsWith('/health') || 
+                          req.path.startsWith('/debug/');
+
+    // 如果是前端或API路径，不捕获请求，继续下一个中间件
+    if (isWebOrApiPath) {
+      return next();
+    }
+    
+    // 检查是否来自Quantumult请求（简单判断User-Agent或特定请求头）
+    const isQuantumultRequest = req.headers['user-agent']?.toLowerCase().includes('quantumult') || 
+                               req.headers['x-quantumult-id'] || 
+                               req.query.quantumult === 'true';
+    
+    // 如果不是Quantumult的请求，返回简单提示
+    if (!isQuantumultRequest) {
+      return res.status(200).json({ 
+        message: '此服务仅用于Quantumult请求捕获',
+        request_path: req.path,
+        timestamp: new Date().toISOString()
+      });
+    }
+
+    // 生成唯一请求ID
+    const requestId = req.requestId || generateRequestId();
+    
+    logger.debug(`[${requestId}] 开始捕获Quantumult请求: ${req.method} ${req.originalUrl}`);
     
     // 记录请求体
     let requestBody = req.body;
@@ -418,7 +615,8 @@ app.all('*', async (req, res) => {
       originalUrl: req.originalUrl,
       protocol: req.protocol,
       host: req.get('host'),
-      is_secure: req.secure
+      is_secure: req.secure,
+      source: 'quantumult'
     };
     
     // 保存请求
@@ -556,4 +754,4 @@ process.on('SIGTERM', () => {
     logger.info('HTTP服务器已关闭');
     process.exit(0);
   });
-}); 
+});
