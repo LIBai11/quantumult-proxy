@@ -3,7 +3,6 @@ import { Low } from 'lowdb';
 import { JSONFile } from 'lowdb/node';
 import config from '../config/env.js';
 import fs from 'fs';
-import path from 'path';
 
 // 创建数据库目录
 const dbDir = join(config.rootDir, 'db');
@@ -160,13 +159,13 @@ async function getAllModifiedResponses() {
 // 获取所有主机列表
 async function getAllHosts() {
   try {
-    await requestsDb.read();
-    // 提取所有请求中的主机，并去重
+    await responsesDb.read();
+    // 提取所有响应中的主机，并去重
     const hosts = new Set();
-    for (const request of requestsDb.data) {
-      if (request.url) {
+    for (const response of responsesDb.data) {
+      if (response.url) {
         try {
-          const url = new URL(request.url);
+          const url = new URL(response.url);
           hosts.add(url.hostname);
         } catch (urlError) {
           // 忽略无效URL
@@ -368,37 +367,34 @@ async function deleteRequestsByHost(host) {
 // 获取请求统计信息
 async function getRequestsStats() {
   try {
-    await requestsDb.read();
     await responsesDb.read();
     await modifiedResponsesDb.read();
     
     // 提取所有主机
     const hostMap = {};
-    let totalRequests = requestsDb.data.length;
     let totalResponses = responsesDb.data.length;
     let totalModifiedResponses = modifiedResponsesDb.data.length;
     
-    // 计算每个主机的请求数
-    for (const request of requestsDb.data) {
-      if (request.url) {
+    // 计算每个主机的响应数
+    for (const response of responsesDb.data) {
+      if (response.url) {
         try {
-          const url = new URL(request.url);
+          const url = new URL(response.url);
           const hostname = url.hostname;
           
           if (!hostMap[hostname]) {
             hostMap[hostname] = {
               hostname,
-              requestCount: 0,
               responseCount: 0,
               modifiedCount: 0,
               methods: {}
             };
           }
           
-          hostMap[hostname].requestCount++;
+          hostMap[hostname].responseCount++;
           
           // 统计请求方法
-          const method = request.method || 'UNKNOWN';
+          const method = response.method || 'UNKNOWN';
           if (!hostMap[hostname].methods[method]) {
             hostMap[hostname].methods[method] = 0;
           }
@@ -410,22 +406,7 @@ async function getRequestsStats() {
       }
     }
     
-    // 计算每个主机的响应数和修改响应数
-    for (const response of responsesDb.data) {
-      if (response.url) {
-        try {
-          const url = new URL(response.url);
-          const hostname = url.hostname;
-          
-          if (hostMap[hostname]) {
-            hostMap[hostname].responseCount++;
-          }
-        } catch (e) {
-          // 忽略无效URL
-        }
-      }
-    }
-    
+    // 计算每个主机的修改响应数
     for (const modResponse of modifiedResponsesDb.data) {
       if (modResponse.url) {
         try {
@@ -442,16 +423,14 @@ async function getRequestsStats() {
     }
     
     return {
-      totalRequests,
       totalResponses,
       totalModifiedResponses,
       hosts: Object.values(hostMap),
       lastUpdated: new Date().toISOString()
     };
   } catch (error) {
-    console.error('获取请求统计错误:', error);
+    console.error('获取响应统计错误:', error);
     return {
-      totalRequests: 0,
       totalResponses: 0,
       totalModifiedResponses: 0,
       hosts: [],
@@ -471,6 +450,176 @@ function getDbPaths() {
   };
 }
 
+// 分页查询响应
+async function getResponsesPaginated(page = 1, limit = 20, host = null, keyword = null, isRegex = false) {
+  try {
+    await responsesDb.read();
+    let filteredResponses = [...responsesDb.data];
+    
+    // 按主机筛选
+    if (host) {
+      filteredResponses = filteredResponses.filter(resp => {
+        if (resp.url) {
+          try {
+            const url = new URL(resp.url);
+            return url.hostname === host;
+          } catch (e) {
+            return false;
+          }
+        }
+        return false;
+      });
+    }
+    
+    // 按关键字筛选
+    if (keyword) {
+      if (isRegex) {
+        // 使用正则表达式搜索
+        try {
+          const regex = new RegExp(keyword, 'i');
+          filteredResponses = filteredResponses.filter(resp => 
+            regex.test(resp.url) || 
+            regex.test(JSON.stringify(resp.headers)) || 
+            (resp.body && regex.test(resp.body)) ||
+            (resp.status && regex.test(String(resp.status)))
+          );
+        } catch (regexError) {
+          console.error('正则表达式错误:', regexError);
+          // 正则表达式无效时，退回到普通搜索
+          filteredResponses = filteredResponses.filter(resp => 
+            resp.url?.includes(keyword) || 
+            JSON.stringify(resp.headers)?.includes(keyword) || 
+            (resp.body && resp.body.includes(keyword)) ||
+            (resp.status && String(resp.status).includes(keyword))
+          );
+        }
+      } else {
+        // 普通关键字搜索
+        filteredResponses = filteredResponses.filter(resp => 
+          resp.url?.includes(keyword) || 
+          JSON.stringify(resp.headers)?.includes(keyword) || 
+          (resp.body && resp.body.includes(keyword)) ||
+          (resp.status && String(resp.status).includes(keyword))
+        );
+      }
+    }
+    
+    // 计算分页数据
+    const total = filteredResponses.length;
+    const totalPages = Math.ceil(total / limit);
+    const startIndex = (page - 1) * limit;
+    const endIndex = page * limit;
+    
+    // 按时间倒序排序（最新的在前面）
+    filteredResponses.sort((a, b) => {
+      const dateA = a.server_timestamp ? new Date(a.server_timestamp) : new Date(0);
+      const dateB = b.server_timestamp ? new Date(b.server_timestamp) : new Date(0);
+      return dateB - dateA;
+    });
+    
+    // 获取当前页的数据
+    const pageItems = filteredResponses.slice(startIndex, endIndex);
+    
+    return {
+      data: pageItems,
+      pagination: {
+        total,
+        page,
+        limit,
+        totalPages
+      }
+    };
+  } catch (error) {
+    console.error('分页查询响应错误:', error);
+    return {
+      data: [],
+      pagination: {
+        total: 0,
+        page,
+        limit,
+        totalPages: 0
+      }
+    };
+  }
+}
+
+// 根据ID查找响应
+async function findResponseById(id) {
+  try {
+    await responsesDb.read();
+    return responsesDb.data.find(resp => resp.request_id === id || resp.server_request_id === id);
+  } catch (error) {
+    console.error('查询响应详情错误:', error);
+    return null;
+  }
+}
+
+// 删除指定ID的响应
+async function deleteResponseById(id) {
+  try {
+    await responsesDb.read();
+    const initialLength = responsesDb.data.length;
+    responsesDb.data = responsesDb.data.filter(resp => resp.id !== id && resp.server_request_id !== id);
+    await responsesDb.write();
+    
+    // 判断是否成功删除
+    const deletedCount = initialLength - responsesDb.data.length;
+    return {
+      success: deletedCount > 0,
+      deletedCount
+    };
+  } catch (error) {
+    console.error('删除响应错误:', error);
+    return {
+      success: false,
+      deletedCount: 0,
+      error: error.message
+    };
+  }
+}
+
+// 删除指定主机的所有响应
+async function deleteResponsesByHost(host) {
+  try {
+    await responsesDb.read();
+    const responseIds = [];
+    const initialLength = responsesDb.data.length;
+    
+    responsesDb.data = responsesDb.data.filter(resp => {
+      if (resp.url) {
+        try {
+          const url = new URL(resp.url);
+          if (url.hostname === host) {
+            // 记录要删除的响应ID
+            responseIds.push(resp.id || resp.server_request_id);
+            return false; // 从数组中移除
+          }
+        } catch (e) {
+          // URL解析错误，保留该记录
+        }
+      }
+      return true; // 保留记录
+    });
+    
+    await responsesDb.write();
+    
+    // 判断是否成功删除
+    const deletedCount = initialLength - responsesDb.data.length;
+    return {
+      success: true,
+      deletedCount,
+      affectedIds: responseIds
+    };
+  } catch (error) {
+    console.error('删除主机响应错误:', error);
+    return {
+      success: false,
+      deletedCount: 0,
+      error: error.message
+    };
+  }
+}
+
 // 初始化数据库
 initDb();
 
@@ -486,6 +635,10 @@ export default {
   getDbPaths,
   getAllHosts,
   getRequestsPaginated,
+  getResponsesPaginated,
+  findResponseById,
+  deleteResponseById,
+  deleteResponsesByHost,
   deleteRequestById,
   deleteRequestsByHost,
   getRequestsStats,

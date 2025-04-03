@@ -25,7 +25,7 @@
 ### 获取活跃主机列表
 
 - **URL**: `GET /hosts/active`
-- **描述**: 获取在指定时间范围内有请求的活跃主机
+- **描述**: 获取在指定时间范围内有响应的活跃主机
 - **参数**:
   - `hours`: 时间范围，以小时为单位，默认24小时
 - **响应示例**:
@@ -47,33 +47,35 @@
   }
   ```
 
-## 请求相关接口
+## 响应相关接口
 
-### 获取所有请求
+### 获取所有响应
 
-- **URL**: `GET /requests`
-- **描述**: 获取所有已捕获的请求
+- **URL**: `GET /responses`
+- **描述**: 获取所有已捕获的响应
 - **参数**: 无
 - **注意**: 该接口可能返回大量数据，建议使用分页接口代替
 - **响应示例**:
   ```json
   [
     {
-      "id": "req123",
+      "id": "res123",
       "url": "https://api.example.com/users",
-      "method": "GET",
-      "headers": {},
-      "body": "",
-      "server_timestamp": "2023-09-01T12:34:56.789Z"
+      "status": 200,
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"success\":true,\"data\":{}}",
+      "server_timestamp": "2023-09-01T12:34:56.890Z"
     },
-    // ...更多请求
+    // ...更多响应
   ]
   ```
 
-### 分页查询请求列表
+### 分页查询响应列表
 
-- **URL**: `GET /requests-paginated`
-- **描述**: 分页获取请求列表，支持主机过滤、关键字/正则查询
+- **URL**: `GET /responses-paginated`
+- **描述**: 分页获取响应列表，支持主机过滤、关键字/正则查询
 - **参数**:
   - `page`: 页码，默认1
   - `limit`: 每页条数，默认20
@@ -85,12 +87,14 @@
   {
     "data": [
       {
-        "id": "req123",
+        "id": "res123",
         "url": "https://api.example.com/users",
-        "method": "GET",
-        "headers": {},
-        "body": "",
-        "server_timestamp": "2023-09-01T12:34:56.789Z"
+        "status": 200,
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"success\":true,\"data\":{}}",
+        "server_timestamp": "2023-09-01T12:34:56.890Z"
       }
     ],
     "pagination": {
@@ -102,69 +106,68 @@
   }
   ```
 
-### 获取指定请求详情
+### 获取指定响应详情
 
-- **URL**: `GET /requests/:id`
-- **描述**: 获取指定ID的请求详情
+- **URL**: `GET /responses/:id`
+- **描述**: 获取指定ID的响应详情
 - **参数**:
-  - `id`: 请求ID，URL路径参数
+  - `id`: 响应ID，URL路径参数
 - **响应示例**:
   ```json
   {
-    "id": "req123",
+    "id": "res123",
     "url": "https://api.example.com/users",
-    "method": "GET",
+    "status": 200,
     "headers": {
-      "user-agent": "Mozilla/5.0",
-      "authorization": "Bearer token123"
+      "content-type": "application/json"
     },
-    "body": "",
-    "server_timestamp": "2023-09-01T12:34:56.789Z"
+    "body": "{\"success\":true,\"data\":{}}",
+    "server_timestamp": "2023-09-01T12:34:56.890Z"
   }
   ```
 
-### 删除指定请求
+### 删除指定响应
 
-- **URL**: `DELETE /requests/:id`
-- **描述**: 删除指定ID的请求及相关响应
+- **URL**: `DELETE /responses/:id`
+- **描述**: 删除指定ID的响应
 - **参数**:
-  - `id`: 请求ID，URL路径参数
+  - `id`: 响应ID，URL路径参数
 - **响应示例**:
   ```json
   {
     "success": true,
-    "message": "已删除 1 条请求记录及相关响应"
+    "message": "已删除 1 条响应记录"
   }
   ```
 
-### 批量删除请求
+### 批量删除响应
 
-- **URL**: `DELETE /requests/batch`
-- **描述**: 批量删除多个请求及相关响应
+- **URL**: `DELETE /responses/batch`
+- **描述**: 批量删除多个响应
 - **请求体**:
   ```json
   {
-    "ids": ["req123", "req456", "req789"]
+    "ids": ["res123", "res456", "res789"]
   }
   ```
 - **响应示例**:
   ```json
   {
     "success": true,
-    "message": "成功删除 3 条请求记录",
+    "message": "成功删除 3 条响应记录",
     "details": [
       {
-        "id": "req123",
+        "id": "res123",
         "success": true,
         "deletedCount": 1
       },
       {
-        "id": "req456",
+        "id": "res456",
         "success": true,
         "deletedCount": 1
       },
       {
-        "id": "req789",
+        "id": "res789",
         "success": true,
         "deletedCount": 1
       }
@@ -172,40 +175,18 @@
   }
   ```
 
-### 删除指定主机的请求
+### 删除指定主机的响应
 
-- **URL**: `DELETE /hosts/:hostname/requests`
-- **描述**: 删除指定主机的所有请求及相关响应
+- **URL**: `DELETE /hosts/:hostname/responses`
+- **描述**: 删除指定主机的所有响应
 - **参数**:
   - `hostname`: 主机名，URL路径参数
 - **响应示例**:
   ```json
   {
     "success": true,
-    "message": "已删除 api.example.com 的 24 条请求记录及相关响应",
-    "affectedIds": ["req123", "req456", "req789"]
-  }
-  ```
-
-## 响应相关接口
-
-### 获取指定请求的响应
-
-- **URL**: `GET /responses/:requestId`
-- **描述**: 获取指定请求ID的响应数据
-- **参数**:
-  - `requestId`: 请求ID，URL路径参数
-- **响应示例**:
-  ```json
-  {
-    "id": "res123",
-    "request_id": "req123",
-    "status_code": 200,
-    "headers": {
-      "content-type": "application/json"
-    },
-    "body": "{\"success\":true,\"data\":{}}",
-    "server_timestamp": "2023-09-01T12:34:56.890Z"
+    "message": "已删除 api.example.com 的 24 条响应记录",
+    "affectedIds": ["res123", "res456", "res789"]
   }
   ```
 
@@ -220,7 +201,7 @@
   {
     "id": "modres123",
     "request_id": "req123",
-    "status_code": 200,
+    "status": 200,
     "headers": {
       "content-type": "application/json"
     },
@@ -231,10 +212,10 @@
 
 ## 统计相关接口
 
-### 获取请求统计信息
+### 获取响应统计信息
 
 - **URL**: `GET /stats`
-- **描述**: 获取请求、响应和修改响应的统计信息
+- **描述**: 获取响应和修改响应的统计信息
 - **参数**: 无
 - **响应示例**:
   ```json
@@ -317,6 +298,48 @@
     "message": "所有数据已清空"
   }
   ```
+
+## 请求相关接口（辅助功能）
+
+虽然项目主要关注响应捕获，但以下请求相关接口也可用于特殊情况：
+
+### 获取所有请求
+
+- **URL**: `GET /requests`
+- **描述**: 获取所有已捕获的请求
+- **参数**: 无
+
+### 分页查询请求列表
+
+- **URL**: `GET /requests-paginated`
+- **描述**: 分页获取请求列表，支持主机过滤、关键字/正则查询
+- **参数**:
+  - `page`: 页码，默认1
+  - `limit`: 每页条数，默认20
+  - `host`: 按主机名过滤，可选
+  - `keyword`: 关键字搜索，可选
+  - `isRegex`: 是否使用正则表达式搜索，可选，'true'或'false'
+
+### 获取指定请求详情
+
+- **URL**: `GET /requests/:id`
+- **描述**: 获取指定ID的请求详情
+- **参数**:
+  - `id`: 请求ID，URL路径参数
+
+### 删除指定请求
+
+- **URL**: `DELETE /requests/:id`
+- **描述**: 删除指定ID的请求及相关响应
+- **参数**:
+  - `id`: 请求ID，URL路径参数
+
+### 删除指定主机的请求
+
+- **URL**: `DELETE /hosts/:hostname/requests`
+- **描述**: 删除指定主机的所有请求及相关响应
+- **参数**:
+  - `hostname`: 主机名，URL路径参数
 
 ## 错误响应
 

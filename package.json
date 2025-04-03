@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "start": "killall -9 node || true && node src/index.js",
+    "start": "pkill -f 'node src/index.js' || true && node src/index.js",
     "dev": "nodemon src/index.js"
   },
   "keywords": [

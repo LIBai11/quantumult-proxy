@@ -16,6 +16,24 @@ router.get('/hosts', async (req, res) => {
   }
 });
 
+// 分页查询响应列表（支持主机过滤、关键字/正则查询）
+router.get('/responses-paginated', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const host = req.query.host || null;
+    const keyword = req.query.keyword || null;
+    const isRegex = req.query.isRegex === 'true';
+
+    // 使用相同的分页函数，但针对响应数据
+    const result = await db.getResponsesPaginated(page, limit, host, keyword, isRegex);
+    return res.json(result);
+  } catch (error) {
+    logger.error(`分页查询响应错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // 分页查询请求列表（支持主机过滤、关键字/正则查询）
 router.get('/requests-paginated', async (req, res) => {
   try {
@@ -33,6 +51,17 @@ router.get('/requests-paginated', async (req, res) => {
   }
 });
 
+// 获取所有响应
+router.get('/responses', async (req, res) => {
+  try {
+    const responses = await db.getAllResponses();
+    return res.json(responses);
+  } catch (error) {
+    logger.error(`获取响应列表错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // 获取所有请求
 router.get('/requests', async (req, res) => {
   try {
@@ -40,6 +69,20 @@ router.get('/requests', async (req, res) => {
     return res.json(requests);
   } catch (error) {
     logger.error(`获取请求列表错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取指定响应详情
+router.get('/responses/:id', async (req, res) => {
+  try {
+    const response = await db.findResponseById(req.params.id);
+    if (!response) {
+      return res.status(404).json({ error: 'Response not found' });
+    }
+    return res.json(response);
+  } catch (error) {
+    logger.error(`获取响应详情错误: ${error.message}`);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -58,6 +101,22 @@ router.get('/requests/:id', async (req, res) => {
   }
 });
 
+// 删除指定ID的响应
+router.delete('/responses/:id', async (req, res) => {
+  try {
+    const result = await db.deleteResponseById(req.params.id);
+    
+    if (result.success) {
+      return res.json({ success: true, message: `已删除 ${result.deletedCount} 条响应记录` });
+    } else {
+      return res.status(404).json({ success: false, message: '找不到指定响应或删除失败' });
+    }
+  } catch (error) {
+    logger.error(`删除响应错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // 删除指定ID的请求及其相关响应
 router.delete('/requests/:id', async (req, res) => {
   try {
@@ -70,6 +129,31 @@ router.delete('/requests/:id', async (req, res) => {
     }
   } catch (error) {
     logger.error(`删除请求错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 删除指定主机的所有响应
+router.delete('/hosts/:hostname/responses', async (req, res) => {
+  try {
+    const hostname = req.params.hostname;
+    const result = await db.deleteResponsesByHost(hostname);
+    
+    if (result.success) {
+      return res.json({ 
+        success: true, 
+        message: `已删除 ${hostname} 的 ${result.deletedCount} 条响应记录`,
+        affectedIds: result.affectedIds 
+      });
+    } else {
+      return res.status(500).json({ 
+        success: false, 
+        message: '删除失败',
+        error: result.error 
+      });
+    }
+  } catch (error) {
+    logger.error(`删除主机响应错误: ${error.message}`);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -110,31 +194,6 @@ router.get('/stats', async (req, res) => {
   }
 });
 
-// 获取所有响应
-router.get('/responses', async (req, res) => {
-  try {
-    const responses = await db.getAllResponses();
-    return res.json(responses);
-  } catch (error) {
-    logger.error(`获取响应列表错误: ${error.message}`);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-// 获取指定请求的响应
-router.get('/responses/:requestId', async (req, res) => {
-  try {
-    const response = await db.findResponseByRequestId(req.params.requestId);
-    if (!response) {
-      return res.status(404).json({ error: 'Response not found' });
-    }
-    return res.json(response);
-  } catch (error) {
-    logger.error(`获取响应详情错误: ${error.message}`);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
 // 获取所有修改后的响应
 router.get('/modified-responses', async (req, res) => {
   try {
@@ -156,6 +215,143 @@ router.get('/modified-responses/:requestId', async (req, res) => {
     return res.json(response);
   } catch (error) {
     logger.error(`获取修改响应详情错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+
+// 批量删除响应
+router.delete('/responses/batch', async (req, res) => {
+  try {
+    if (!req.body.ids || !Array.isArray(req.body.ids) || req.body.ids.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: '请提供要删除的响应ID数组' 
+      });
+    }
+    
+    const ids = req.body.ids;
+    const results = [];
+    let totalDeleted = 0;
+    
+    // 逐个删除响应
+    for (const id of ids) {
+      const result = await db.deleteResponseById(id);
+      results.push({
+        id,
+        success: result.success,
+        deletedCount: result.deletedCount
+      });
+      
+      if (result.success) {
+        totalDeleted += result.deletedCount;
+      }
+    }
+    
+    return res.json({
+      success: true,
+      message: `成功删除 ${totalDeleted} 条响应记录`,
+      details: results
+    });
+  } catch (error) {
+    logger.error(`批量删除响应错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 批量删除请求
+router.delete('/requests/batch', async (req, res) => {
+  try {
+    if (!req.body.ids || !Array.isArray(req.body.ids) || req.body.ids.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: '请提供要删除的请求ID数组' 
+      });
+    }
+    
+    const ids = req.body.ids;
+    const results = [];
+    let totalDeleted = 0;
+    
+    // 逐个删除请求
+    for (const id of ids) {
+      const result = await db.deleteRequestById(id);
+      results.push({
+        id,
+        success: result.success,
+        deletedCount: result.deletedCount
+      });
+      
+      if (result.success) {
+        totalDeleted += result.deletedCount;
+      }
+    }
+    
+    return res.json({
+      success: true,
+      message: `成功删除 ${totalDeleted} 条请求记录`,
+      details: results
+    });
+  } catch (error) {
+    logger.error(`批量删除请求错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取当前活跃主机（24小时内有响应的主机）
+router.get('/hosts/active', async (req, res) => {
+  try {
+    const hours = parseInt(req.query.hours) || 24;
+    await db.responsesDb.read();
+    
+    const now = new Date();
+    const timeLimit = new Date(now.getTime() - hours * 60 * 60 * 1000);
+    
+    // 获取时间范围内的响应
+    const recentResponses = db.responsesDb.data.filter(resp => {
+      if (!resp.server_timestamp) return false;
+      const respTime = new Date(resp.server_timestamp);
+      return respTime >= timeLimit;
+    });
+    
+    // 提取主机并计数
+    const hostMap = {};
+    for (const response of recentResponses) {
+      if (response.url) {
+        try {
+          const url = new URL(response.url);
+          const hostname = url.hostname;
+          
+          if (!hostMap[hostname]) {
+            hostMap[hostname] = {
+              hostname,
+              count: 0,
+              lastActive: null
+            };
+          }
+          
+          hostMap[hostname].count++;
+          
+          // 更新最后活跃时间
+          const timestamp = new Date(response.server_timestamp);
+          if (!hostMap[hostname].lastActive || timestamp > new Date(hostMap[hostname].lastActive)) {
+            hostMap[hostname].lastActive = response.server_timestamp;
+          }
+        } catch (e) {
+          // 忽略无效URL
+        }
+      }
+    }
+    
+    // 按请求次数排序
+    const sortedHosts = Object.values(hostMap).sort((a, b) => b.count - a.count);
+    
+    return res.json({
+      timeRange: `${hours} 小时`,
+      hosts: sortedHosts
+    });
+  } catch (error) {
+    logger.error(`获取活跃主机错误: ${error.message}`);
     return res.status(500).json({ error: error.message });
   }
 });
@@ -223,103 +419,6 @@ router.get('/status', async (req, res) => {
     return res.json(status);
   } catch (error) {
     logger.error(`获取数据库状态错误: ${error.message}`);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-// 批量删除请求
-router.delete('/requests/batch', async (req, res) => {
-  try {
-    if (!req.body.ids || !Array.isArray(req.body.ids) || req.body.ids.length === 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: '请提供要删除的请求ID数组' 
-      });
-    }
-    
-    const ids = req.body.ids;
-    const results = [];
-    let totalDeleted = 0;
-    
-    // 逐个删除请求
-    for (const id of ids) {
-      const result = await db.deleteRequestById(id);
-      results.push({
-        id,
-        success: result.success,
-        deletedCount: result.deletedCount
-      });
-      
-      if (result.success) {
-        totalDeleted += result.deletedCount;
-      }
-    }
-    
-    return res.json({
-      success: true,
-      message: `成功删除 ${totalDeleted} 条请求记录`,
-      details: results
-    });
-  } catch (error) {
-    logger.error(`批量删除请求错误: ${error.message}`);
-    return res.status(500).json({ error: error.message });
-  }
-});
-
-// 获取当前活跃主机（24小时内有请求的主机）
-router.get('/hosts/active', async (req, res) => {
-  try {
-    const hours = parseInt(req.query.hours) || 24;
-    await db.requestsDb.read();
-    
-    const now = new Date();
-    const timeLimit = new Date(now.getTime() - hours * 60 * 60 * 1000);
-    
-    // 获取时间范围内的请求
-    const recentRequests = db.requestsDb.data.filter(req => {
-      if (!req.server_timestamp) return false;
-      const reqTime = new Date(req.server_timestamp);
-      return reqTime >= timeLimit;
-    });
-    
-    // 提取主机并计数
-    const hostMap = {};
-    for (const request of recentRequests) {
-      if (request.url) {
-        try {
-          const url = new URL(request.url);
-          const hostname = url.hostname;
-          
-          if (!hostMap[hostname]) {
-            hostMap[hostname] = {
-              hostname,
-              count: 0,
-              lastActive: null
-            };
-          }
-          
-          hostMap[hostname].count++;
-          
-          // 更新最后活跃时间
-          const timestamp = new Date(request.server_timestamp);
-          if (!hostMap[hostname].lastActive || timestamp > new Date(hostMap[hostname].lastActive)) {
-            hostMap[hostname].lastActive = request.server_timestamp;
-          }
-        } catch (e) {
-          // 忽略无效URL
-        }
-      }
-    }
-    
-    // 按请求次数排序
-    const sortedHosts = Object.values(hostMap).sort((a, b) => b.count - a.count);
-    
-    return res.json({
-      timeRange: `${hours} 小时`,
-      hosts: sortedHosts
-    });
-  } catch (error) {
-    logger.error(`获取活跃主机错误: ${error.message}`);
     return res.status(500).json({ error: error.message });
   }
 });
