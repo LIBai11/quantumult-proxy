@@ -12,6 +12,7 @@ import { cleanupOldRequests } from './utils/helpers.js';
 import { setupUnhandledRejectionHandler, setupUncaughtExceptionHandler } from './middleware/errorHandlers.js';
 import apiRoutes from './routes/api.js';
 import * as captureController from './controllers/captureController.js';
+import dbServer from './models/dbServer.js';
 
 // 加载环境变量
 dotenv.config();
@@ -45,7 +46,16 @@ const server = app.listen(config.port, () => {
   logger.info(`日志级别: ${logger.level}`);
   logger.info(`请求存储目录: ${config.requestsDir}`);
   logger.info(`日志存储目录: ${config.logsDir}`);
+
+  // 启动JSON Server数据库服务
+  try {
+    dbServer.startDbServer(3001);
+    logger.info('JSON Server数据库服务已启动');
+  } catch (error) {
+    logger.error(`启动JSON Server失败: ${error.message}`);
+  }
 });
+
 // 安全关闭
 const shutdownGracefully = () => {
   logger.info('正在关闭服务器...');

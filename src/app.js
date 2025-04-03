@@ -8,6 +8,7 @@ import logger from './utils/logger.js';
 import routes from './routes/index.js';
 import { requestLogger, basicLogger } from './middleware/loggers.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandlers.js';
+import adminRoutes from './routes/admin.js';
 
 // 创建Express应用
 const app = express();
@@ -44,6 +45,9 @@ if (process.env.NODE_ENV !== 'production') {
 
 // 注册主路由
 app.use(routes);
+
+// 注册管理路由
+app.use('/admin', adminRoutes);
 
 // 处理404错误
 app.use(notFoundHandler);

@@ -24,10 +24,14 @@
     "dotenv": "^16.4.4",
     "express": "^4.21.2",
     "helmet": "^7.1.0",
+    "json-server": "^0.17.4",
+    "lowdb": "^7.0.1",
     "morgan": "^1.10.0",
+    "sequelize": "^6.37.7",
+    "sqlite3": "^5.1.7",
     "winston": "^3.11.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"
   }
-} 
+}

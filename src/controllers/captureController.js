@@ -3,6 +3,7 @@ import path from 'path';
 import logger from '../utils/logger.js';
 import config from '../config/env.js';
 import { generateRequestId } from '../utils/helpers.js';
+import db from '../models/db.js';
 
 /**
  * 处理重写请求捕获
@@ -20,10 +21,9 @@ export async function captureRequest(req, res) {
       server_request_id: requestId
     };
 
-    // 保存请求到文件
-    const filename = path.join(config.requestsDir, `${capturedRequest.id || requestId}_req.json`);
-    await fs.promises.writeFile(filename, JSON.stringify(capturedRequest, null, 2));
-    logger.info(`[${requestId}] 重写捕获请求已保存到: ${filename}`);
+    // 保存请求到数据库
+    await db.saveRequest(capturedRequest);
+    logger.info(`[${requestId}] 重写捕获请求已保存到数据库`);
 
     // 返回成功响应
     return res.status(200).json({
@@ -58,10 +58,9 @@ export async function captureResponse(req, res) {
       server_request_id: requestId
     };
 
-    // 保存响应到文件
-    const filename = path.join(config.requestsDir, `${capturedResponse.request_id || requestId}_res.json`);
-    await fs.promises.writeFile(filename, JSON.stringify(capturedResponse, null, 2));
-    logger.info(`[${requestId}] 重写捕获响应已保存到: ${filename}`);
+    // 保存响应到数据库
+    await db.saveResponse(capturedResponse);
+    logger.info(`[${requestId}] 重写捕获响应已保存到数据库`);
 
     // 返回成功响应
     return res.status(200).json({
@@ -97,10 +96,9 @@ export async function modifyResponse(req, res) {
       server_request_id: requestId
     };
 
-    // 保存响应到文件
-    const filename = path.join(config.requestsDir, `${capturedResponse.request_id || requestId}_res_modify_req.json`);
-    await fs.promises.writeFile(filename, JSON.stringify(capturedResponse, null, 2));
-    logger.debug(`[${requestId}] 重写捕获响应修改请求已保存到: ${filename}`);
+    // 保存响应到数据库
+    await db.saveResponse(capturedResponse);
+    logger.debug(`[${requestId}] 重写捕获响应修改请求已保存到数据库`);
 
     // 应用响应修改规则
     let modifiedResponse = null;
@@ -164,10 +162,11 @@ export async function modifyResponse(req, res) {
 
     // 如果应用规则后决定修改响应
     if (shouldModify && modifiedResponse) {
-      // 记录修改后的响应
-      const modifyResultFile = path.join(config.requestsDir, `${capturedResponse.request_id || requestId}_res_modified.json`);
-      await fs.promises.writeFile(modifyResultFile, JSON.stringify(modifiedResponse, null, 2));
-      logger.debug(`[${requestId}] 修改后的响应已保存到: ${modifyResultFile}`);
+      // 记录修改后的响应到数据库
+      modifiedResponse.request_id = capturedResponse.request_id || requestId;
+      modifiedResponse.original_url = originalUrl;
+      await db.saveModifiedResponse(modifiedResponse);
+      logger.debug(`[${requestId}] 修改后的响应已保存到数据库`);
 
       logger.info(`[${requestId}] 返回修改后的响应`);
       return res.status(200).json(modifiedResponse);
