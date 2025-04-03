@@ -9,6 +9,6 @@ const router = express.Router();
 router.use(express.static(path.join(config.rootDir, 'public')));
 
 // API路由
-router.use('/', apiRoutes);
+router.use('/api', apiRoutes);
 
-export default router; 
+export default router;

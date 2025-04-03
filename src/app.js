@@ -18,9 +18,9 @@ app.use(helmet({
 }));
 
 // 请求日志中间件
-app.use(morgan('dev', { 
-  stream: { 
-    write: message => logger.info(message.trim()) 
+app.use(morgan('dev', {
+  stream: {
+    write: message => logger.info(message.trim())
   }
 }));
 
@@ -51,4 +51,4 @@ app.use(notFoundHandler);
 // 全局错误处理
 app.use(errorHandler);
 
-export default app; 
+export default app;
