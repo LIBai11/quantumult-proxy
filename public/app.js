@@ -1,5 +1,6 @@
 // 全局变量
 let allRequests = [];
+let filteredRequests = []; // 过滤后的请求
 let currentFilter = {
   host: 'all',
   method: 'all',
@@ -8,6 +9,11 @@ let currentFilter = {
 let hostGroups = new Map(); // 存储按主机分组的请求
 let isLoading = false; // 全局加载状态
 let activeButtons = new Set(); // 正在执行操作的按钮
+
+// 分页相关变量
+let currentPage = 1;
+let pageSize = 20;
+let totalPages = 1;
 
 // 工具函数
 function formatDateTime(isoString) {
@@ -268,71 +274,150 @@ function clearRequestsTable() {
 }
 
 function renderRequestsTable(requests) {
+  clearRequestsTable();
+  
+  // 更新过滤后的请求列表
+  filteredRequests = requests;
+  
+  // 计算总页数
+  totalPages = Math.ceil(requests.length / pageSize);
+  
+  // 确保当前页在有效范围内
+  if (currentPage > totalPages) {
+    currentPage = totalPages > 0 ? totalPages : 1;
+  }
+  
+  // 计算当前页的起始和结束索引
+  const startIndex = (currentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, requests.length);
+  
+  // 只渲染当前页的请求
+  const currentPageRequests = requests.slice(startIndex, endIndex);
+  
   const tableBody = document.getElementById('requests-table');
+  
   if (!tableBody) {
     console.error('找不到请求表格元素');
     return;
   }
   
-  clearRequestsTable();
-  
-  if (!requests || requests.length === 0) {
+  if (currentPageRequests.length === 0) {
     showElement('no-requests');
+    hideElement('requests-loading');
+    
+    // 更新分页信息
+    updatePaginationInfo(0, 0, requests.length);
     return;
   }
   
   hideElement('no-requests');
   
-  requests.forEach(request => {
+  // 更新分页信息
+  updatePaginationInfo(startIndex + 1, endIndex, requests.length);
+  
+  // 渲染当前页的请求
+  currentPageRequests.forEach(request => {
     // 提取主机名
     const host = getHostFromUrl(request.url);
     const method = request.method || 'GET';
     
+    // 创建表格行
     const row = document.createElement('tr');
-    row.innerHTML = `
-      <td>${formatDateTime(request.timestamp)}</td>
-      <td><span class="badge method-badge ${getMethodClass(method)}">${method}</span></td>
-      <td class="url-cell" title="${request.url || ''}">${request.url || ''}</td>
-      <td><span class="status-code ${getStatusClass(request.status)}">${request.status || '-'}</span></td>
-      <td>${formatBytes(request.size || 0)}</td>
-      <td>
-        <div class="btn-group">
-          <button class="btn btn-primary btn-sm action-btn view-btn" data-id="${request.id}" title="查看详情">
-            <i class="bi bi-eye"></i>
-          </button>
-          <button class="btn btn-danger btn-sm action-btn delete-btn" data-id="${request.id}" title="删除">
-            <i class="bi bi-trash"></i>
-          </button>
-        </div>
-      </td>
-    `;
+    
+    // 添加时间单元格
+    const timeCell = document.createElement('td');
+    timeCell.textContent = formatDateTime(request.timestamp);
+    row.appendChild(timeCell);
+    
+    // 添加方法单元格
+    const methodCell = document.createElement('td');
+    const methodBadge = document.createElement('span');
+    methodBadge.className = `badge ${getMethodClass(method)}`;
+    methodBadge.textContent = method;
+    methodCell.appendChild(methodBadge);
+    row.appendChild(methodCell);
+    
+    // 添加URL单元格
+    const urlCell = document.createElement('td');
+    urlCell.className = 'url-cell';
+    urlCell.textContent = request.url || '未知URL';
+    row.appendChild(urlCell);
+    
+    // 添加状态码单元格
+    const statusCell = document.createElement('td');
+    if (request.status) {
+      const statusBadge = document.createElement('span');
+      statusBadge.className = `status-code ${getStatusClass(request.status)}`;
+      statusBadge.textContent = request.status;
+      statusCell.appendChild(statusBadge);
+    } else {
+      statusCell.textContent = '未知';
+    }
+    row.appendChild(statusCell);
+    
+    // 添加大小单元格
+    const sizeCell = document.createElement('td');
+    sizeCell.textContent = formatBytes(request.size || 0);
+    row.appendChild(sizeCell);
+    
+    // 添加操作单元格
+    const actionCell = document.createElement('td');
+    
+    // 查看按钮
+    const viewButton = document.createElement('button');
+    viewButton.className = 'btn btn-sm btn-primary action-btn me-1';
+    viewButton.innerHTML = '<i class="bi bi-eye"></i>';
+    viewButton.title = '查看详情';
+    viewButton.addEventListener('click', () => viewRequestDetail(request.id));
+    actionCell.appendChild(viewButton);
+    
+    // 删除按钮
+    const deleteButton = document.createElement('button');
+    deleteButton.className = 'btn btn-sm btn-danger action-btn';
+    deleteButton.innerHTML = '<i class="bi bi-trash"></i>';
+    deleteButton.title = '删除请求';
+    deleteButton.addEventListener('click', () => deleteRequest(request.id));
+    actionCell.appendChild(deleteButton);
+    
+    row.appendChild(actionCell);
     
     tableBody.appendChild(row);
   });
   
-  // 为所有查看按钮添加事件监听
-  document.querySelectorAll('.view-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const button = e.currentTarget;
-      const requestId = button.getAttribute('data-id');
-      
-      setButtonLoading(button, true);
-      await viewRequestDetail(requestId);
-      setButtonLoading(button, false);
-    });
-  });
+  // 更新分页控件状态
+  updatePaginationControls();
+}
+
+// 添加更新分页信息的函数
+function updatePaginationInfo(start, end, total) {
+  const pageInfoElement = document.getElementById('page-info');
+  if (pageInfoElement) {
+    pageInfoElement.textContent = total > 0 ? `${start}-${end} 共 ${total}` : '0-0 共 0';
+  }
+}
+
+// 添加更新分页控件状态的函数
+function updatePaginationControls() {
+  const prevPageElement = document.getElementById('prev-page');
+  const nextPageElement = document.getElementById('next-page');
   
-  // 为所有删除按钮添加事件监听
-  document.querySelectorAll('.delete-btn').forEach(btn => {
-    btn.addEventListener('click', async (e) => {
-      const button = e.currentTarget;
-      const requestId = button.getAttribute('data-id');
-      
-      setButtonLoading(button, true);
-      await deleteRequest(requestId);
-      setButtonLoading(button, false);
-    });
-  });
+  if (prevPageElement) {
+    const prevPageItem = prevPageElement.parentElement;
+    if (currentPage > 1) {
+      prevPageItem.classList.remove('disabled');
+    } else {
+      prevPageItem.classList.add('disabled');
+    }
+  }
+  
+  if (nextPageElement) {
+    const nextPageItem = nextPageElement.parentElement;
+    if (currentPage < totalPages) {
+      nextPageItem.classList.remove('disabled');
+    } else {
+      nextPageItem.classList.add('disabled');
+    }
+  }
 }
 
 async function viewRequestDetail(requestId) {
@@ -480,14 +565,23 @@ function renderHostGroups() {
     listItem.href = '#';
     listItem.className = 'list-group-item list-group-item-action';
     listItem.dataset.host = host;
+    listItem.title = host; // 添加tooltip
     
     if (currentFilter.host === host) {
       listItem.classList.add('active');
     }
     
-    listItem.innerHTML = `
-      ${host} <span class="badge bg-primary rounded-pill">${count}</span>
-    `;
+    // 创建主机名和数量badge的结构
+    const hostSpan = document.createElement('span');
+    hostSpan.className = 'host-name';
+    hostSpan.textContent = host;
+    
+    const countBadge = document.createElement('span');
+    countBadge.className = 'badge bg-primary rounded-pill';
+    countBadge.textContent = count;
+    
+    listItem.appendChild(hostSpan);
+    listItem.appendChild(countBadge);
     
     container.appendChild(listItem);
   });
@@ -601,6 +695,30 @@ function setButtonLoading(button, isLoading) {
   }
 }
 
+// 显示通知
+function showNotification(message, type = 'success', duration = 3000) {
+  // 移除所有现有通知，避免堆积
+  const existingNotifications = document.querySelectorAll('.notification');
+  existingNotifications.forEach(notification => {
+    notification.remove();
+  });
+  
+  const notification = document.createElement('div');
+  notification.className = `alert alert-${type} fade-in notification`;
+  notification.innerHTML = message;
+  
+  // 添加到页面
+  document.body.appendChild(notification);
+  
+  // 设置定时消失
+  setTimeout(() => {
+    notification.classList.add('fade-out');
+    setTimeout(() => {
+      notification.remove();
+    }, 300);
+  }, duration);
+}
+
 // 页面加载时初始化
 document.addEventListener('DOMContentLoaded', async () => {
   try {
@@ -667,7 +785,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const clearAllBtn = document.getElementById('clear-all-btn');
     if (clearAllBtn) {
       clearAllBtn.addEventListener('click', async (e) => {
-        if (!confirm('确定要清空所有请求?')) {
+        const currentHost = currentFilter.host;
+        const confirmMessage = currentHost === 'all' 
+          ? '确定要清空所有请求?' 
+          : `确定要清空主机 "${currentHost}" 的所有请求?`;
+          
+        if (!confirm(confirmMessage)) {
           return;
         }
         
@@ -675,8 +798,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         showElement('requests-loading');
         
         try {
-          // 使用GET方法和特定参数代替DELETE方法
-          const response = await fetch('/request/clear-all?action=delete_all', {
+          // 根据当前筛选的主机构建请求URL
+          const url = currentHost === 'all' 
+            ? '/request/clear-all?action=delete_all' 
+            : `/request/clear-all?action=delete_host&host=${encodeURIComponent(currentHost)}`;
+          
+          const response = await fetch(url, {
             method: 'GET'
           });
           
@@ -688,34 +815,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           const result = await response.json();
           
           // 使用带过渡的通知
-          const notification = document.createElement('div');
-          notification.className = 'alert alert-success fade-in notification';
-          notification.innerHTML = `成功清空请求: 删除了 ${result.stats?.deleted || '所有'} 个文件`;
-          document.body.appendChild(notification);
-          
-          setTimeout(() => {
-            notification.classList.add('fade-out');
-            setTimeout(() => {
-              notification.remove();
-            }, 300);
-          }, 3000);
+          showNotification(`成功清空请求: 删除了 ${result.stats?.deleted || '所有'} 个文件`, 'success');
           
           // 重新加载请求列表
           await fetchAllRequests();
         } catch (error) {
           console.error('清空请求失败:', error);
-          
-          const notification = document.createElement('div');
-          notification.className = 'alert alert-danger fade-in notification';
-          notification.innerHTML = `清空请求失败: ${error.message}`;
-          document.body.appendChild(notification);
-          
-          setTimeout(() => {
-            notification.classList.add('fade-out');
-            setTimeout(() => {
-              notification.remove();
-            }, 300);
-          }, 3000);
+          showNotification(`清空请求失败: ${error.message}`, 'danger');
         } finally {
           setButtonLoading(clearAllBtn, false);
           hideElement('requests-loading');
@@ -727,6 +833,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     setInterval(async () => {
       await fetchServerStats();
     }, 30000); // 每30秒刷新一次服务器状态
+    
+    // 分页控件事件监听
+    const pageSizeSelect = document.getElementById('page-size');
+    if (pageSizeSelect) {
+      pageSizeSelect.addEventListener('change', (e) => {
+        pageSize = parseInt(e.target.value, 10);
+        currentPage = 1; // 更改页大小后重置为第一页
+        applyFiltersAndRender();
+      });
+    }
+    
+    const prevPageElement = document.getElementById('prev-page');
+    if (prevPageElement) {
+      prevPageElement.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (currentPage > 1) {
+          currentPage--;
+          applyFiltersAndRender();
+        }
+      });
+    }
+    
+    const nextPageElement = document.getElementById('next-page');
+    if (nextPageElement) {
+      nextPageElement.addEventListener('click', (e) => {
+        e.preventDefault();
+        if (currentPage < totalPages) {
+          currentPage++;
+          applyFiltersAndRender();
+        }
+      });
+    }
   } catch (error) {
     console.error('初始化页面时发生错误:', error);
   }

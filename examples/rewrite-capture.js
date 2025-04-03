@@ -18,6 +18,9 @@ const captureServerUrl = 'https://upward-gibbon-genuinely.ngrok-free.app';
 // 调试模式（true/false）- 设置为true将在控制台输出更多信息
 const debugMode = true;
 
+// 是否启用响应修改功能
+const enableResponseModification = true;
+
 // 辅助函数：获取当前时间
 function getCurrentTime() {
   return new Date().toISOString();
@@ -90,22 +93,24 @@ function sendToCaptureServer(data, path) {
   const url = `${captureServerUrl}${path}`;
   log(`发送数据到捕获服务器: ${url}`);
   
-  $task.fetch({
-    url: url,
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'User-Agent': 'QuantumultX/1.0',
-      'X-Capture-Source': 'rewrite-script',
-      'X-Capture-Time': getCurrentTime()
-    },
-    body: JSON.stringify(data)
-  }, (error, response, body) => {
-    if (error) {
+  return new Promise((resolve, reject) => {
+    $task.fetch({
+      url: url,
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'User-Agent': 'QuantumultX/1.0',
+        'X-Capture-Source': 'rewrite-script',
+        'X-Capture-Time': getCurrentTime()
+      },
+      body: JSON.stringify(data)
+    }).then(response => {
+      log(`发送数据到捕获服务器成功: ${response.status} ${response.body.substring(0, 100)}`);
+      resolve(response);
+    }, error => {
       log(`发送数据到捕获服务器失败: ${error}`);
-    } else {
-      log(`发送数据到捕获服务器成功: ${response.status} ${body.substring(0, 100)}`);
-    }
+      reject(error);
+    });
   });
 }
 
@@ -221,13 +226,51 @@ function handleResponseCapture() {
       body_size: $response.body ? $response.body.length : 0
     };
     
-    // 发送响应信息到捕获服务器
-    sendToCaptureServer(responseInfo, '/capture/response');
-    
-    log(`响应处理完成: ${requestId}`);
-    
-    // 不修改原始响应，返回原样的响应
-    $done($response);
+    if (enableResponseModification) {
+      // 发送响应到捕获服务器，并等待可能的修改
+      sendToCaptureServer(responseInfo, '/capture/response/modify')
+        .then(modifyResponse => {
+          try {
+            // 检查捕获服务器是否返回了修改后的响应体
+            const modifyData = JSON.parse(modifyResponse.body);
+            
+            if (modifyData && modifyData.modified) {
+              log(`接收到修改后的响应: ${$request.url}`);
+              
+              // 创建修改后的响应对象
+              const modifiedResponse = {
+                status: modifyData.status || $response.status,
+                headers: modifyData.headers || $response.headers,
+                body: modifyData.body || $response.body
+              };
+              
+              log(`返回修改后的响应: ${modifiedResponse.body.substring(0, 100)}`);
+              $done(modifiedResponse);
+            } else {
+              // 无修改，发送原始响应信息到捕获服务器（只用于记录）
+              sendToCaptureServer(responseInfo, '/capture/response');
+              log(`无需修改响应: ${$request.url}`);
+              $done($response);
+            }
+          } catch (parseError) {
+            log(`解析修改响应失败: ${parseError.message}`);
+            // 解析错误，发送原始响应信息到捕获服务器（只用于记录）
+            sendToCaptureServer(responseInfo, '/capture/response');
+            $done($response);
+          }
+        })
+        .catch(error => {
+          log(`获取修改响应失败: ${error}`);
+          // 错误时也发送原始响应信息到捕获服务器（只用于记录）
+          sendToCaptureServer(responseInfo, '/capture/response');
+          $done($response);
+        });
+    } else {
+      // 不启用修改功能时，只是发送响应信息到捕获服务器
+      sendToCaptureServer(responseInfo, '/capture/response');
+      log(`响应处理完成: ${requestId}`);
+      $done($response);
+    }
   } catch (error) {
     log(`处理响应失败: ${error.message}`);
     // 出错时也返回原始响应
@@ -254,7 +297,8 @@ function handleResponseCapture() {
         timestamp: getCurrentTime(),
         version: '1.0.0',
         capture_server: captureServerUrl,
-        debug_mode: debugMode
+        debug_mode: debugMode,
+        response_modification: enableResponseModification
       })
     });
   }

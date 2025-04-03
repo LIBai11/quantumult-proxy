@@ -38,6 +38,15 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  overflow: hidden;
+}
+
+#host-groups .list-group-item .host-name {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+  flex: 1;
+  margin-right: 10px;
 }
 
 #host-groups .list-group-item:first-child {
@@ -241,10 +250,14 @@ body {
   right: 20px;
   z-index: 2000;
   min-width: 250px;
+  max-width: 400px;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   border-radius: 8px;
   padding: 15px 20px;
   transition: all var(--transition-duration) ease-in-out;
+  word-wrap: break-word;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* 平滑过渡 */

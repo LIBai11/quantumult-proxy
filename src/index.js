@@ -258,6 +258,122 @@ app.post('/capture/response', (req, res) => {
   }
 });
 
+// 重写响应修改端点 - 用于修改捕获的响应并返回
+app.post('/capture/response/modify', (req, res) => {
+  try {
+    const requestId = req.requestId || generateRequestId();
+    const originalUrl = req.body.url;
+    logger.info(`[${requestId}] 接收到重写脚本响应修改请求: ${originalUrl}`);
+    
+    // 保存捕获的响应信息
+    const capturedResponse = {
+      ...req.body,
+      capture_type: 'rewrite_response_modify',
+      server_timestamp: new Date().toISOString(),
+      server_request_id: requestId
+    };
+    
+    // 保存响应到文件
+    const filename = path.join(requestsDir, `${capturedResponse.request_id || requestId}_res_modify_req.json`);
+    fs.writeFile(filename, JSON.stringify(capturedResponse, null, 2), (err) => {
+      if (err) {
+        logger.error(`[${requestId}] 保存重写捕获响应修改请求失败: ${err.message}`);
+      } else {
+        logger.debug(`[${requestId}] 重写捕获响应修改请求已保存到: ${filename}`);
+      }
+    });
+    
+    // 应用响应修改规则
+    let modifiedResponse = null;
+    let shouldModify = false;
+    
+    // 从URL中提取关键信息
+    const urlObj = new URL(originalUrl);
+    
+    // URL匹配规则 - 根据需要添加更多规则
+    // 示例规则1：修改 baidu.com/get/1 返回
+    if (urlObj.hostname.includes('baidu.com') && urlObj.pathname === '/get/1') {
+      shouldModify = true;
+      logger.info(`[${requestId}] 匹配规则：百度 /get/1 接口`);
+      
+      try {
+        // 解析原始响应体
+        const originalBody = req.body.body ? JSON.parse(req.body.body) : {};
+        
+        // 修改响应体
+        const modifiedBody = {
+          ...originalBody,
+          text: 2  // 修改值
+        };
+        
+        modifiedResponse = {
+          modified: true,
+          status: req.body.status || 200,
+          headers: req.body.headers || {},
+          body: JSON.stringify(modifiedBody)
+        };
+        
+        logger.info(`[${requestId}] 已修改响应体：${JSON.stringify(modifiedBody)}`);
+      } catch (parseError) {
+        logger.error(`[${requestId}] 响应体JSON解析失败: ${parseError.message}`);
+        // 解析失败时，不修改响应
+        shouldModify = false;
+      }
+    }
+    
+    // 示例规则2：特定API响应修改
+    else if (urlObj.pathname.includes('/api/example')) {
+      shouldModify = true;
+      logger.info(`[${requestId}] 匹配规则：特定API响应修改`);
+      
+      // 完全替换响应体
+      modifiedResponse = {
+        modified: true,
+        status: 200,
+        headers: req.body.headers || {},
+        body: JSON.stringify({
+          success: true,
+          message: "这是一个被修改的响应",
+          data: {
+            id: 12345,
+            name: "修改后的数据",
+            timestamp: new Date().toISOString()
+          }
+        })
+      };
+    }
+    
+    // 如果应用规则后决定修改响应
+    if (shouldModify && modifiedResponse) {
+      // 记录修改后的响应
+      const modifyResultFile = path.join(requestsDir, `${capturedResponse.request_id || requestId}_res_modified.json`);
+      fs.writeFile(modifyResultFile, JSON.stringify(modifiedResponse, null, 2), (err) => {
+        if (err) {
+          logger.error(`[${requestId}] 保存修改后的响应失败: ${err.message}`);
+        } else {
+          logger.debug(`[${requestId}] 修改后的响应已保存到: ${modifyResultFile}`);
+        }
+      });
+      
+      logger.info(`[${requestId}] 返回修改后的响应`);
+      return res.status(200).json(modifiedResponse);
+    } else {
+      // 不修改响应
+      logger.info(`[${requestId}] 不需要修改响应`);
+      return res.status(200).json({
+        modified: false
+      });
+    }
+  } catch (error) {
+    logger.error(`[${req.requestId}] 处理响应修改错误: ${error.message}`);
+    // 出错时，返回不修改的标志
+    return res.status(200).json({
+      modified: false,
+      error: error.message
+    });
+  }
+});
+
 // 调试日志端点
 app.post('/debug/log', (req, res) => {
   const logData = req.body;
@@ -481,58 +597,151 @@ app.delete('/request/:id', (req, res) => {
   });
 });
 
-// 清空所有请求
-app.delete('/requests', (req, res) => {
-  logger.debug(`[${req.requestId}] 尝试清空所有请求`);
+// 清空或查询请求
+app.get('/request/clear-all', (req, res) => {
+  const action = req.query.action;
+  const host = req.query.host;
   
-  fs.readdir(requestsDir, (err, files) => {
-    if (err) {
-      logger.error(`[${req.requestId}] 读取请求目录失败: ${err.message}`);
-      return res.status(500).json({ error: '无法读取请求目录', message: err.message });
-    }
-    
-    // 筛选JSON文件
-    const jsonFiles = files.filter(file => file.endsWith('.json'));
-    let deletedCount = 0;
-    let errorCount = 0;
-    
-    if (jsonFiles.length === 0) {
-      return res.status(200).json({ 
-        success: true, 
-        message: '没有请求需要删除',
-        stats: { total: 0, deleted: 0, error: 0 }
+  logger.info(`[${req.requestId}] 清空请求请求，操作：${action}，主机：${host || 'all'}`);
+  
+  if (action === 'delete_all') {
+    // 清空所有请求
+    fs.readdir(requestsDir, (err, files) => {
+      if (err) {
+        logger.error(`[${req.requestId}] 读取请求目录失败: ${err.message}`);
+        return res.status(500).json({ error: '无法读取请求目录', message: err.message });
+      }
+      
+      // 筛选JSON文件
+      const jsonFiles = files.filter(file => file.endsWith('.json'));
+      let deletedCount = 0;
+      let errorCount = 0;
+      
+      if (jsonFiles.length === 0) {
+        return res.status(200).json({ 
+          success: true, 
+          message: '没有请求需要删除',
+          stats: { total: 0, deleted: 0, error: 0 }
+        });
+      }
+      
+      // 使用Promise.all批量删除文件
+      const deletePromises = jsonFiles.map(file => {
+        return new Promise((resolve) => {
+          const filePath = path.join(requestsDir, file);
+          fs.unlink(filePath, (err) => {
+            if (err) {
+              logger.error(`[${req.requestId}] 删除文件失败: ${file}, 错误: ${err.message}`);
+              errorCount++;
+            } else {
+              logger.info(`[${req.requestId}] 删除文件成功: ${file}`);
+              deletedCount++;
+            }
+            resolve();
+          });
+        });
       });
-    }
-    
-    // 使用Promise.all批量删除文件
-    const deletePromises = jsonFiles.map(file => {
-      return new Promise((resolve) => {
-        const filePath = path.join(requestsDir, file);
-        fs.unlink(filePath, (err) => {
-          if (err) {
-            logger.error(`[${req.requestId}] 删除文件失败: ${file}, 错误: ${err.message}`);
-            errorCount++;
-          } else {
-            logger.info(`[${req.requestId}] 删除文件成功: ${file}`);
-            deletedCount++;
+      
+      Promise.all(deletePromises).then(() => {
+        logger.info(`[${req.requestId}] 清空请求完成，成功: ${deletedCount}, 失败: ${errorCount}`);
+        res.status(200).json({
+          success: true,
+          message: `删除了 ${deletedCount} 个请求文件`,
+          stats: {
+            total: jsonFiles.length,
+            deleted: deletedCount,
+            error: errorCount
           }
-          resolve();
         });
       });
     });
-    
-    Promise.all(deletePromises).then(() => {
-      logger.info(`[${req.requestId}] 清空请求完成，成功: ${deletedCount}, 失败: ${errorCount}`);
-      res.status(200).json({
-        success: true,
-        message: `删除了 ${deletedCount} 个请求文件`,
-        stats: {
-          total: jsonFiles.length,
-          deleted: deletedCount,
-          error: errorCount
-        }
+    return;
+  } else if (action === 'delete_host' && host) {
+    // 清空特定主机的请求
+    fs.readdir(requestsDir, (err, files) => {
+      if (err) {
+        logger.error(`[${req.requestId}] 读取请求目录失败: ${err.message}`);
+        return res.status(500).json({ error: '无法读取请求目录', message: err.message });
+      }
+      
+      // 筛选JSON文件
+      const jsonFiles = files.filter(file => file.endsWith('.json'));
+      let deletedCount = 0;
+      let errorCount = 0;
+      let checkedCount = 0;
+      
+      if (jsonFiles.length === 0) {
+        return res.status(200).json({ 
+          success: true, 
+          message: '没有请求需要删除',
+          stats: { total: 0, deleted: 0, error: 0 }
+        });
+      }
+      
+      // 处理每个文件，检查主机
+      const processPromises = jsonFiles.map(file => {
+        return new Promise((resolve) => {
+          const filePath = path.join(requestsDir, file);
+          
+          // 读取文件查看是否匹配主机
+          fs.readFile(filePath, 'utf8', (readErr, data) => {
+            if (readErr) {
+              logger.error(`[${req.requestId}] 读取文件失败: ${file}, 错误: ${readErr.message}`);
+              errorCount++;
+              resolve();
+              return;
+            }
+            
+            try {
+              const requestData = JSON.parse(data);
+              const requestHost = requestData.url ? new URL(requestData.url).hostname : null;
+              
+              if (requestHost === host) {
+                // 删除匹配的文件
+                fs.unlink(filePath, (unlinkErr) => {
+                  if (unlinkErr) {
+                    logger.error(`[${req.requestId}] 删除文件失败: ${file}, 错误: ${unlinkErr.message}`);
+                    errorCount++;
+                  } else {
+                    logger.info(`[${req.requestId}] 删除文件成功: ${file}`);
+                    deletedCount++;
+                  }
+                  resolve();
+                });
+              } else {
+                checkedCount++;
+                resolve();
+              }
+            } catch (parseErr) {
+              logger.error(`[${req.requestId}] 解析文件失败: ${file}, 错误: ${parseErr.message}`);
+              errorCount++;
+              resolve();
+            }
+          });
+        });
+      });
+      
+      Promise.all(processPromises).then(() => {
+        logger.info(`[${req.requestId}] 清空主机 ${host} 的请求完成，删除: ${deletedCount}, 检查: ${checkedCount}, 失败: ${errorCount}`);
+        res.status(200).json({
+          success: true,
+          message: `删除了主机 ${host} 的 ${deletedCount} 个请求文件`,
+          stats: {
+            host: host,
+            total: jsonFiles.length,
+            checked: checkedCount,
+            deleted: deletedCount,
+            error: errorCount
+          }
+        });
       });
     });
+    return;
+  }
+  
+  res.status(400).json({ 
+    error: '无效的操作', 
+    message: '必须指定有效的action参数' 
   });
 });
 
