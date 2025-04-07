@@ -16,6 +16,21 @@ router.get('/hosts', async (req, res) => {
   }
 });
 
+// 分页查询主机列表（支持关键字查询）
+router.get('/hosts-paginated', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const keyword = req.query.keyword || null;
+
+    const result = await db.getHostsPaginated(page, limit, keyword);
+    return res.json(result);
+  } catch (error) {
+    logger.error(`分页查询主机列表错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 // 分页查询响应列表（支持主机过滤、关键字/正则查询）
 router.get('/responses-paginated', async (req, res) => {
   try {
@@ -419,6 +434,193 @@ router.get('/status', async (req, res) => {
     return res.json(status);
   } catch (error) {
     logger.error(`获取数据库状态错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取捕获状态
+router.get('/capture-status', (req, res) => {
+  try {
+    const status = db.getCaptureStatus();
+    return res.json(status);
+  } catch (error) {
+    logger.error(`获取捕获状态错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 设置捕获状态
+router.post('/capture-status', (req, res) => {
+  try {
+    const enabled = req.body.enabled;
+    
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ 
+        success: false, 
+        message: '请提供有效的启用状态（布尔值）' 
+      });
+    }
+    
+    const status = db.setCaptureStatus(enabled);
+    
+    return res.json({
+      success: true,
+      message: enabled ? '已启用请求捕获' : '已暂停请求捕获',
+      status
+    });
+  } catch (error) {
+    logger.error(`设置捕获状态错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取所有捕获规则
+router.get('/capture-rules', async (req, res) => {
+  try {
+    const rules = await db.getAllCaptureRules();
+    return res.json(rules);
+  } catch (error) {
+    logger.error(`获取捕获规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 启用捕获规则
+router.patch('/capture-rules/:id/enable', async (req, res) => {
+  try {
+    const ruleId = req.params.id;
+    const result = await db.updateCaptureRuleStatus(ruleId, true);
+    
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: "规则已启用",
+        rule: result.rule
+      });
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: result.message || '未找到指定规则'
+      });
+    }
+  } catch (error) {
+    logger.error(`启用捕获规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 禁用捕获规则
+router.patch('/capture-rules/:id/disable', async (req, res) => {
+  try {
+    const ruleId = req.params.id;
+    const result = await db.updateCaptureRuleStatus(ruleId, false);
+    
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: "规则已禁用",
+        rule: result.rule
+      });
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: result.message || '未找到指定规则'
+      });
+    }
+  } catch (error) {
+    logger.error(`禁用捕获规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 添加捕获规则
+router.post('/capture-rules', async (req, res) => {
+  try {
+    const { host, methods } = req.body;
+    
+    if (!host) {
+      return res.status(400).json({ 
+        success: false, 
+        message: '请提供主机名(host)' 
+      });
+    }
+    
+    // 验证methods是否为有效的HTTP方法数组
+    if (methods && Array.isArray(methods)) {
+      const validMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
+      const invalidMethods = methods.filter(m => !validMethods.includes(m.toUpperCase()));
+      
+      if (invalidMethods.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: `请求方法无效: ${invalidMethods.join(', ')}`,
+          validMethods
+        });
+      }
+    }
+    
+    const rule = await db.addCaptureRule({ host, methods });
+    
+    return res.status(201).json({
+      success: true,
+      message: '已添加捕获规则',
+      rule
+    });
+  } catch (error) {
+    logger.error(`添加捕获规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 删除捕获规则
+router.delete('/capture-rules/:id', async (req, res) => {
+  try {
+    const ruleId = req.params.id;
+    const result = await db.deleteCaptureRule(ruleId);
+    
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: '已删除捕获规则'
+      });
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: result.message || '未找到指定规则'
+      });
+    }
+  } catch (error) {
+    logger.error(`删除捕获规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 清空所有捕获规则
+router.delete('/capture-rules', async (req, res) => {
+  try {
+    // 确保请求包含确认标志
+    if (req.body.confirm !== 'YES_DELETE_ALL_RULES') {
+      return res.status(400).json({ 
+        success: false, 
+        message: '请提供确认标志以删除所有捕获规则' 
+      });
+    }
+    
+    const result = await db.clearAllCaptureRules();
+    
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: '已清空所有捕获规则'
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        message: result.message || '清空捕获规则失败'
+      });
+    }
+  } catch (error) {
+    logger.error(`清空捕获规则错误: ${error.message}`);
     return res.status(500).json({ error: error.message });
   }
 });
