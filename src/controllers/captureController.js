@@ -92,6 +92,7 @@ export async function modifyResponse(req, res) {
     // 保存捕获的响应信息
     const capturedResponse = {
       ...req.body,
+      method: req.body.method || 'UNKNOWN', // 确保保存请求方法
       capture_type: 'rewrite_response_modify',
       server_timestamp: new Date().toISOString(),
       server_request_id: requestId

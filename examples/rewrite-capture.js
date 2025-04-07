@@ -16,7 +16,7 @@
 const captureServerUrl = 'https://upward-gibbon-genuinely.ngrok-free.app';
 
 // 调试模式（true/false）- 设置为true将在控制台输出更多信息
-const debugMode = true;
+const debugMode = false;
 
 // 是否启用响应修改功能
 const enableResponseModification = true;
@@ -222,6 +222,7 @@ function handleResponseCapture() {
       request_id: requestId,
       timestamp: getCurrentTime(),
       url: $request.url,
+      method: $request.method,
       status: $response.status || 200,
       headers: $response.headers,
       body: $response.body || null,
