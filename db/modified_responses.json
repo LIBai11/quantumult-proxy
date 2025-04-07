@@ -1,1 +1,11 @@
-[]
+[
+  {
+    "modified": true,
+    "status": 200,
+    "headers": {},
+    "body": "{\"status\":0,\"data\":{\"userId\":3007797,\"nickname\":\"王世华sss\",\"male\":1,\"headImageUrl\":\"\",\"business\":0,\"externalUserType\":null,\"orgs\":[{\"orgId\":2,\"isAdmin\":1,\"isOwner\":0,\"isActive\":1,\"subject\":null,\"titleId\":null,\"orgName\":\"合心内测\",\"wordPoints\":388,\"isFree\":0,\"aigcToolConfig\":\"{\\\"aigcCostConfig\\\":1,\\\"aigcUnitPrice\\\":{\\\"unitPrice_AISelect\\\":40,\\\"unitPrice_AI\\\":1,\\\"unitPrice_Rewrite\\\":1,\\\"unitPrice_Proposition\\\":1,\\\"unitPrice_AudioGenerate\\\":1}}\",\"wordToFbdTypes\":\"exercise,journal,paper,textbook\",\"enableTransformEditAndRerun\":1,\"enableW2FBDEditAndRerun\":1,\"enableW2FBDDraw\":1,\"enableUploadPro\":1,\"enableAdvancedSetting\":1,\"enableTemplateLib\":1,\"enableExportDraft\":1,\"enableUploadOriginFile\":1,\"enableAutoFbd\":1,\"enablePublishTemplateLib\":1,\"enableBookSeries\":1,\"enableBlog\":1,\"enablePublishBookDisk\":1,\"enableExternalUser\":1,\"enableAigcTool\":1,\"enableTeacher\":3,\"enableTeacherPaperCenter\":1,\"enableTeacherWechat\":0,\"enableTeacherResource\":1,\"enableRelatedQuestion\":1,\"enableDrawImageSearched\":0,\"enableImageManage\":null,\"enableOrgImageSearch\":null,\"departments\":[]}],\"accounts\":[{\"username\":\"wangshihua@hexin.im\",\"userType\":1,\"validated\":0}]},\"dataFrom\":\"redis\",\"statusInfo\":\"1ms\"}",
+    "matchedRule": "rule_1744000181299_246",
+    "original_url": "http://uc.hexinedu.com/api/getOwn",
+    "request_id": "req_1744000199573_httpuche"
+  }
+]

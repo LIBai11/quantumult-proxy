@@ -210,6 +210,177 @@
   }
   ```
 
+## 响应修改规则接口
+
+### 获取所有响应修改规则
+
+- **URL**: `GET /response-rules`
+- **描述**: 获取所有响应修改规则
+- **参数**: 无
+- **响应示例**:
+```json
+[
+  {
+    "id": "rule_1631234567890_123",
+    "name": "修改特定API返回值",
+    "host": "api.example.com",
+    "pathRegex": "^/api/v1/users/\\d+$",
+    "method": "GET",
+    "enabled": true,
+    "responseBody": "{\"success\":true,\"data\":{\"id\":123,\"name\":\"Modified User\"}}",
+    "responseStatus": 200,
+    "responseHeaders": {"content-type": "application/json"},
+    "createdAt": "2023-09-01T12:34:56.789Z",
+    "updatedAt": "2023-09-01T12:34:56.789Z"
+  }
+]
+```
+
+### 获取单个响应修改规则
+
+- **URL**: `GET /response-rules/:id`
+- **描述**: 获取指定ID的响应修改规则详情
+- **参数**:
+- `id`: 规则ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "id": "rule_1631234567890_123",
+  "name": "修改特定API返回值",
+  "host": "api.example.com",
+  "pathRegex": "^/api/v1/users/\\d+$",
+  "method": "GET",
+  "enabled": true,
+  "responseBody": "{\"success\":true,\"data\":{\"id\":123,\"name\":\"Modified User\"}}",
+  "responseStatus": 200,
+  "responseHeaders": {"content-type": "application/json"},
+  "createdAt": "2023-09-01T12:34:56.789Z",
+  "updatedAt": "2023-09-01T12:34:56.789Z"
+}
+```
+
+### 创建响应修改规则
+
+- **URL**: `POST /response-rules`
+- **描述**: 创建新的响应修改规则
+- **请求体**:
+```json
+{
+  "name": "修改特定API返回值",
+  "host": "api.example.com",
+  "pathRegex": "^/api/v1/users/\\d+$",
+  "method": "GET",
+  "enabled": true,
+  "responseBody": "{\"success\":true,\"data\":{\"id\":123,\"name\":\"Modified User\"}}",
+  "responseStatus": 200,
+  "responseHeaders": {"content-type": "application/json"}
+}
+```
+- **参数说明**:
+- `name`: 规则名称（必填）
+- `host`: 主机名匹配，使用 '*' 匹配所有主机（必填）
+- `pathRegex`: 路径正则表达式匹配（必填）
+- `method`: HTTP方法匹配，使用 '*' 匹配所有方法（必填）
+- `enabled`: 是否启用，默认为true（可选）
+- `responseBody`: 替换的响应体（可选）
+- `responseStatus`: 替换的状态码，默认200（可选）
+- `responseHeaders`: 替换的响应头（可选）
+- **响应示例**:
+```json
+{
+  "id": "rule_1631234567890_123",
+  "name": "修改特定API返回值",
+  "host": "api.example.com",
+  "pathRegex": "^/api/v1/users/\\d+$",
+  "method": "GET",
+  "enabled": true,
+  "responseBody": "{\"success\":true,\"data\":{\"id\":123,\"name\":\"Modified User\"}}",
+  "responseStatus": 200,
+  "responseHeaders": {"content-type": "application/json"},
+  "createdAt": "2023-09-01T12:34:56.789Z",
+  "updatedAt": "2023-09-01T12:34:56.789Z"
+}
+```
+
+### 更新响应修改规则
+
+- **URL**: `PUT /response-rules/:id`
+- **描述**: 更新指定ID的响应修改规则
+- **参数**:
+- `id`: 规则ID，URL路径参数
+- **请求体**:
+```json
+{
+  "name": "修改后的规则名称",
+  "pathRegex": "^/api/v1/users/\\d+/details$",
+  "responseBody": "{\"success\":true,\"data\":{\"id\":456,\"name\":\"Updated User\"}}"
+}
+```
+- **响应示例**:
+```json
+{
+  "id": "rule_1631234567890_123",
+  "name": "修改后的规则名称",
+  "host": "api.example.com",
+  "pathRegex": "^/api/v1/users/\\d+/details$",
+  "method": "GET",
+  "enabled": true,
+  "responseBody": "{\"success\":true,\"data\":{\"id\":456,\"name\":\"Updated User\"}}",
+  "responseStatus": 200,
+  "responseHeaders": {"content-type": "application/json"},
+  "createdAt": "2023-09-01T12:34:56.789Z",
+  "updatedAt": "2023-09-01T14:35:46.123Z"
+}
+```
+
+### 删除响应修改规则
+
+- **URL**: `DELETE /response-rules/:id`
+- **描述**: 删除指定ID的响应修改规则
+- **参数**:
+- `id`: 规则ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "已删除响应修改规则",
+  "deletedCount": 1
+}
+```
+
+### 启用/禁用响应修改规则
+
+- **URL**: `PATCH /response-rules/:id/status`
+- **描述**: 更新指定规则的启用状态
+- **参数**:
+- `id`: 规则ID，URL路径参数
+- **请求体**:
+```json
+{
+  "enabled": false
+}
+```
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "规则已禁用",
+  "rule": {
+    "id": "rule_1631234567890_123",
+    "name": "修改特定API返回值",
+    "host": "api.example.com",
+    "pathRegex": "^/api/v1/users/\\d+$",
+    "method": "GET",
+    "enabled": false,
+    "responseBody": "{\"success\":true,\"data\":{\"id\":123,\"name\":\"Modified User\"}}",
+    "responseStatus": 200,
+    "responseHeaders": {"content-type": "application/json"},
+    "createdAt": "2023-09-01T12:34:56.789Z",
+    "updatedAt": "2023-09-01T15:45:23.456Z"
+  }
+}
+```
+
 ## 统计相关接口
 
 ### 获取响应统计信息

@@ -103,78 +103,37 @@ export async function modifyResponse(req, res) {
     logger.debug(`[${requestId}] 重写捕获响应修改请求已保存到数据库`);
 
     // 应用响应修改规则
-    let modifiedResponse = null;
-    let shouldModify = false;
+    const modifiedResponse = await db.applyResponseRules(capturedResponse);
 
-    // 从URL中提取关键信息
-    const urlObj = new URL(originalUrl);
-
-    // URL匹配规则 - 根据需要添加更多规则
-    // 示例规则1：修改 baidu.com/get/1 返回
-    if (urlObj.hostname.includes('baidu.com') && urlObj.pathname === '/get/1') {
-      shouldModify = true;
-      logger.info(`[${requestId}] 匹配规则：百度 /get/1 接口`);
-
-      try {
-        // 解析原始响应体
-        const originalBody = req.body.body ? JSON.parse(req.body.body) : {};
-
-        // 修改响应体
-        const modifiedBody = {
-          ...originalBody,
-          text: 2  // 修改值
-        };
-
-        modifiedResponse = {
-          modified: true,
-          status: req.body.status || 200,
-          headers: req.body.headers || {},
-          body: JSON.stringify(modifiedBody)
-        };
-
-        logger.info(`[${requestId}] 已修改响应体：${JSON.stringify(modifiedBody)}`);
-      } catch (parseError) {
-        logger.error(`[${requestId}] 响应体JSON解析失败: ${parseError.message}`);
-        // 解析失败时，不修改响应
-        shouldModify = false;
-      }
-    }
-
-    // 示例规则2：特定API响应修改
-    else if (urlObj.pathname.includes('/api/example')) {
-      shouldModify = true;
-      logger.info(`[${requestId}] 匹配规则：特定API响应修改`);
-
-      // 完全替换响应体
-      modifiedResponse = {
-        modified: true,
-        status: 200,
-        headers: req.body.headers || {},
-        body: JSON.stringify({
-          success: true,
-          message: "这是一个被修改的响应",
-          data: {
-            id: 12345,
-            name: "修改后的数据",
-            timestamp: new Date().toISOString()
-          }
-        })
-      };
-    }
-
-    // 如果应用规则后决定修改响应
-    if (shouldModify && modifiedResponse) {
+    // 如果找到了匹配的规则并进行了修改
+    if (modifiedResponse) {
       // 记录修改后的响应到数据库
       modifiedResponse.request_id = capturedResponse.request_id || requestId;
-      modifiedResponse.original_url = originalUrl;
       await db.saveModifiedResponse(modifiedResponse);
+      
+      // 记录规则匹配信息
+      if (modifiedResponse.matchedRulesCount > 1) {
+        logger.info(`[${requestId}] 匹配到多个规则，使用最新的规则: ${modifiedResponse.ruleName} (ID: ${modifiedResponse.matchedRule})`);
+        logger.info(`[${requestId}] 共匹配 ${modifiedResponse.matchedRulesCount} 个规则`);
+      } else {
+        logger.info(`[${requestId}] 匹配到规则: ${modifiedResponse.ruleName} (ID: ${modifiedResponse.matchedRule})`);
+      }
+      
       logger.debug(`[${requestId}] 修改后的响应已保存到数据库`);
 
+      // 清理返回给客户端的响应，移除内部属性
+      const clientResponse = {
+        modified: modifiedResponse.modified,
+        status: modifiedResponse.status,
+        headers: modifiedResponse.headers,
+        body: modifiedResponse.body
+      };
+
       logger.info(`[${requestId}] 返回修改后的响应`);
-      return res.status(200).json(modifiedResponse);
+      return res.status(200).json(clientResponse);
     } else {
       // 不修改响应
-      logger.info(`[${requestId}] 不需要修改响应`);
+      logger.info(`[${requestId}] 未匹配到任何响应修改规则，不修改响应`);
       return res.status(200).json({
         modified: false
       });

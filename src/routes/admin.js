@@ -625,4 +625,105 @@ router.delete('/capture-rules', async (req, res) => {
   }
 });
 
+// -------------------------- 响应修改规则管理 --------------------------
+
+// 获取所有响应修改规则
+router.get('/response-rules', async (req, res) => {
+  try {
+    const rules = await db.getAllResponseRules();
+    return res.json(rules);
+  } catch (error) {
+    logger.error(`获取响应修改规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取单个响应修改规则
+router.get('/response-rules/:id', async (req, res) => {
+  try {
+    const rule = await db.findResponseRuleById(req.params.id);
+    if (!rule) {
+      return res.status(404).json({ error: '找不到指定的响应修改规则' });
+    }
+    return res.json(rule);
+  } catch (error) {
+    logger.error(`获取响应修改规则详情错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 创建新的响应修改规则
+router.post('/response-rules', async (req, res) => {
+  try {
+    const result = await db.addResponseRule(req.body);
+    if (result.success) {
+      return res.status(201).json(result.rule);
+    } else {
+      return res.status(400).json({ error: result.error });
+    }
+  } catch (error) {
+    logger.error(`创建响应修改规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 更新响应修改规则
+router.put('/response-rules/:id', async (req, res) => {
+  try {
+    const result = await db.updateResponseRule(req.params.id, req.body);
+    if (result.success) {
+      return res.json(result.rule);
+    } else {
+      return res.status(404).json({ error: result.error });
+    }
+  } catch (error) {
+    logger.error(`更新响应修改规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 删除响应修改规则
+router.delete('/response-rules/:id', async (req, res) => {
+  try {
+    const result = await db.deleteResponseRule(req.params.id);
+    if (result.success) {
+      return res.json({ 
+        success: true, 
+        message: `已删除响应修改规则`,
+        deletedCount: result.deletedCount 
+      });
+    } else {
+      return res.status(404).json({ error: result.error });
+    }
+  } catch (error) {
+    logger.error(`删除响应修改规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 启用/禁用响应修改规则
+router.patch('/response-rules/:id/status', async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    
+    if (enabled === undefined) {
+      return res.status(400).json({ error: '缺少 enabled 参数' });
+    }
+    
+    const result = await db.updateResponseRuleStatus(req.params.id, enabled);
+    if (result.success) {
+      return res.json({ 
+        success: true, 
+        message: `规则已${enabled ? '启用' : '禁用'}`,
+        rule: result.rule 
+      });
+    } else {
+      return res.status(404).json({ error: result.error });
+    }
+  } catch (error) {
+    logger.error(`更新响应修改规则状态错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
 export default router; 

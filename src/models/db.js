@@ -15,12 +15,16 @@ const requestsDbPath = join(dbDir, 'requests.json');
 const responsesDbPath = join(dbDir, 'responses.json');
 const modifiedResponsesDbPath = join(dbDir, 'modified_responses.json');
 const captureRulesDbPath = join(dbDir, 'capture_rules.json');
+const responseRulesDbPath = join(dbDir, 'response_rules.json');
 
 // 捕获状态 - true表示正在捕获，false表示暂停
 let captureEnabled = true;
 
 // 捕获规则列表 - 用于存储特定主机和请求方法的捕获规则
 let captureRules = [];
+
+// 响应修改规则列表 - 用于存储特定URL的响应修改规则
+let responseRules = [];
 
 // 获取当前捕获状态
 function getCaptureStatus() {
@@ -49,17 +53,20 @@ ensureDbFile(requestsDbPath, []);
 ensureDbFile(responsesDbPath, []);
 ensureDbFile(modifiedResponsesDbPath, []);
 ensureDbFile(captureRulesDbPath, []);
+ensureDbFile(responseRulesDbPath, []);
 
 // 创建各数据库适配器和实例
 const requestsAdapter = new JSONFile(requestsDbPath);
 const responsesAdapter = new JSONFile(responsesDbPath);
 const modifiedResponsesAdapter = new JSONFile(modifiedResponsesDbPath);
 const captureRulesAdapter = new JSONFile(captureRulesDbPath);
+const responseRulesAdapter = new JSONFile(responseRulesDbPath);
 
 const requestsDb = new Low(requestsAdapter, []);
 const responsesDb = new Low(responsesAdapter, []);
 const modifiedResponsesDb = new Low(modifiedResponsesAdapter, []);
 const captureRulesDb = new Low(captureRulesAdapter, []);
+const responseRulesDb = new Low(responseRulesAdapter, []);
 
 // 初始化数据库结构
 async function initDb() {
@@ -69,7 +76,8 @@ async function initDb() {
       requestsDb.read(),
       responsesDb.read(),
       modifiedResponsesDb.read(),
-      captureRulesDb.read()
+      captureRulesDb.read(),
+      responseRulesDb.read()
     ]);
     
     // 初始化默认值
@@ -77,16 +85,21 @@ async function initDb() {
     responsesDb.data ||= [];
     modifiedResponsesDb.data ||= [];
     captureRulesDb.data ||= [];
+    responseRulesDb.data ||= [];
     
     // 将捕获规则加载到内存中
     captureRules = [...captureRulesDb.data];
+    
+    // 将响应修改规则加载到内存中
+    responseRules = [...responseRulesDb.data];
     
     // 保存数据
     await Promise.all([
       requestsDb.write(),
       responsesDb.write(),
       modifiedResponsesDb.write(),
-      captureRulesDb.write()
+      captureRulesDb.write(),
+      responseRulesDb.write()
     ]);
   } catch (error) {
     console.error('初始化数据库错误:', error);
@@ -548,11 +561,12 @@ async function getRequestsStats() {
 // 获取数据库路径
 function getDbPaths() {
   return {
-    dbDir,
+    rootDir: dbDir,
     requestsDbPath,
     responsesDbPath,
     modifiedResponsesDbPath,
-    captureRulesDbPath
+    captureRulesDbPath,
+    responseRulesDbPath
   };
 }
 
@@ -894,6 +908,304 @@ async function updateCaptureRuleStatus(ruleId, enabled) {
   }
 }
 
+// 以下是响应修改规则相关的功能函数
+
+/**
+ * 获取所有响应修改规则
+ */
+async function getAllResponseRules() {
+  try {
+    await responseRulesDb.read();
+    return responseRulesDb.data;
+  } catch (error) {
+    console.error('获取所有响应修改规则错误:', error);
+    return [];
+  }
+}
+
+/**
+ * 根据ID查找响应修改规则
+ */
+async function findResponseRuleById(ruleId) {
+  try {
+    await responseRulesDb.read();
+    return responseRulesDb.data.find(rule => rule.id === ruleId);
+  } catch (error) {
+    console.error('查找响应修改规则错误:', error);
+    return null;
+  }
+}
+
+/**
+ * 添加新的响应修改规则
+ * @param {Object} rule 规则对象, 包含:
+ *   - id: 自动生成, 规则唯一标识
+ *   - name: 规则名称
+ *   - host: 主机名匹配
+ *   - pathRegex: 路径正则表达式匹配
+ *   - method: HTTP方法匹配(GET, POST等)
+ *   - enabled: 是否启用
+ *   - responseBody: 替换的响应体
+ *   - responseStatus: 替换的状态码
+ *   - responseHeaders: 替换的响应头
+ *   - createdAt: 创建时间
+ *   - updatedAt: 更新时间
+ */
+async function addResponseRule(rule) {
+  try {
+    await responseRulesDb.read();
+    
+    // 验证必填字段
+    if (!rule.name || !rule.host || !rule.pathRegex || !rule.method) {
+      throw new Error('缺少必要的规则字段');
+    }
+    
+    // 检查pathRegex是否为有效的正则表达式
+    try {
+      new RegExp(rule.pathRegex);
+    } catch(e) {
+      throw new Error('无效的路径正则表达式');
+    }
+    
+    // 创建完整的规则对象
+    const newRule = {
+      id: rule.id || `rule_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+      name: rule.name,
+      host: rule.host,
+      pathRegex: rule.pathRegex,
+      method: rule.method,
+      enabled: rule.enabled ?? true,
+      responseBody: rule.responseBody || null,
+      responseStatus: rule.responseStatus || 200,
+      responseHeaders: rule.responseHeaders || {},
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    
+    // 添加到数据库和内存中
+    responseRulesDb.data.push(newRule);
+    await responseRulesDb.write();
+    
+    // 更新内存中的规则列表
+    responseRules = [...responseRulesDb.data];
+    
+    return { success: true, rule: newRule };
+  } catch (error) {
+    console.error('添加响应修改规则错误:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 更新响应修改规则
+ */
+async function updateResponseRule(ruleId, updatedRule) {
+  try {
+    await responseRulesDb.read();
+    
+    // 查找规则索引
+    const ruleIndex = responseRulesDb.data.findIndex(rule => rule.id === ruleId);
+    
+    if (ruleIndex === -1) {
+      return { success: false, error: '找不到指定规则' };
+    }
+    
+    // 检查pathRegex是否为有效的正则表达式
+    if (updatedRule.pathRegex) {
+      try {
+        new RegExp(updatedRule.pathRegex);
+      } catch(e) {
+        throw new Error('无效的路径正则表达式');
+      }
+    }
+    
+    // 更新规则
+    const existingRule = responseRulesDb.data[ruleIndex];
+    const newRule = {
+      ...existingRule,
+      ...updatedRule,
+      updatedAt: new Date().toISOString()
+    };
+    
+    // 保存到数据库
+    responseRulesDb.data[ruleIndex] = newRule;
+    await responseRulesDb.write();
+    
+    // 更新内存中的规则列表
+    responseRules = [...responseRulesDb.data];
+    
+    return { success: true, rule: newRule };
+  } catch (error) {
+    console.error('更新响应修改规则错误:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 删除响应修改规则
+ */
+async function deleteResponseRule(ruleId) {
+  try {
+    await responseRulesDb.read();
+    
+    // 查找并删除规则
+    const initialLength = responseRulesDb.data.length;
+    responseRulesDb.data = responseRulesDb.data.filter(rule => rule.id !== ruleId);
+    
+    if (responseRulesDb.data.length === initialLength) {
+      return { success: false, error: '找不到指定规则' };
+    }
+    
+    // 保存到数据库
+    await responseRulesDb.write();
+    
+    // 更新内存中的规则列表
+    responseRules = [...responseRulesDb.data];
+    
+    return { success: true, deletedCount: initialLength - responseRulesDb.data.length };
+  } catch (error) {
+    console.error('删除响应修改规则错误:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 更新响应修改规则状态（启用/禁用）
+ */
+async function updateResponseRuleStatus(ruleId, enabled) {
+  try {
+    await responseRulesDb.read();
+    
+    // 查找规则索引
+    const ruleIndex = responseRulesDb.data.findIndex(rule => rule.id === ruleId);
+    
+    if (ruleIndex === -1) {
+      return { success: false, error: '找不到指定规则' };
+    }
+    
+    // 更新规则状态
+    responseRulesDb.data[ruleIndex].enabled = !!enabled;
+    responseRulesDb.data[ruleIndex].updatedAt = new Date().toISOString();
+    
+    // 保存到数据库
+    await responseRulesDb.write();
+    
+    // 更新内存中的规则列表
+    responseRules = [...responseRulesDb.data];
+    
+    return { success: true, rule: responseRulesDb.data[ruleIndex] };
+  } catch (error) {
+    console.error('更新响应修改规则状态错误:', error);
+    return { success: false, error: error.message };
+  }
+}
+
+/**
+ * 匹配URL并应用相应的响应修改规则
+ * @param {Object} requestInfo 请求信息，包含url, method等
+ * @returns {Object|null} 修改后的响应或null(不需要修改)
+ */
+async function applyResponseRules(requestInfo) {
+  try {
+    if (!requestInfo || !requestInfo.url || !requestInfo.method) {
+      return null;
+    }
+    
+    // 解析URL
+    const urlObj = new URL(requestInfo.url);
+    const host = urlObj.hostname;
+    const path = urlObj.pathname + urlObj.search;
+    const method = requestInfo.method.toUpperCase();
+    
+    // 记录所有匹配的规则
+    let matchedRules = [];
+    
+    // 检查是否有匹配的规则
+    for (const rule of responseRules) {
+      // 跳过已禁用规则
+      if (!rule.enabled) continue;
+      
+      // 检查主机名是否匹配
+      if (rule.host !== '*' && !host.includes(rule.host)) continue;
+      
+      // 检查请求方法是否匹配
+      if (rule.method !== '*' && rule.method !== method) continue;
+      
+      // 检查路径是否匹配规则的正则表达式
+      try {
+        const pathRegex = new RegExp(rule.pathRegex);
+        if (!pathRegex.test(path)) continue;
+        
+        // 匹配成功，添加到匹配规则列表
+        matchedRules.push(rule);
+      } catch (regexError) {
+        console.error(`规则 ${rule.id} 的正则表达式无效:`, regexError);
+        continue;
+      }
+    }
+    
+    // 如果没有匹配的规则，返回null
+    if (matchedRules.length === 0) {
+      return null;
+    }
+    
+    // 按更新时间降序排序，取最新的规则
+    matchedRules.sort((a, b) => {
+      const timeA = new Date(a.updatedAt || a.createdAt).getTime();
+      const timeB = new Date(b.updatedAt || b.createdAt).getTime();
+      return timeB - timeA;
+    });
+    
+    // 使用最新的规则
+    const newestRule = matchedRules[0];
+    console.log(`应用最新的规则: ${newestRule.id} (${newestRule.name}), 共匹配 ${matchedRules.length} 个规则`);
+    
+    // 创建修改后的响应
+    let responseBody = newestRule.responseBody;
+    
+    // 如果原始响应是JSON格式，处理模板替换
+    if (requestInfo.body && requestInfo.headers && (
+        requestInfo.headers['content-type']?.includes('application/json') || 
+        requestInfo.headers['Content-Type']?.includes('application/json')
+    )) {
+      try {
+        // 尝试解析原始响应体
+        const originalBody = JSON.parse(requestInfo.body);
+        
+        // 如果规则的响应体是JSON字符串，解析它
+        if (typeof responseBody === 'string' && responseBody.trim().startsWith('{')) {
+          responseBody = JSON.parse(responseBody);
+          
+          // 可以在这里处理模板变量替换等逻辑，根据需求扩展
+        }
+        
+        // 重新转换为字符串
+        if (typeof responseBody !== 'string') {
+          responseBody = JSON.stringify(responseBody);
+        }
+      } catch (parseError) {
+        console.error('处理响应体时出错:', parseError);
+        // 解析错误时，使用原始规则的响应体
+      }
+    }
+    
+    // 返回修改后的响应
+    return {
+      modified: true,
+      status: newestRule.responseStatus || requestInfo.status || 200,
+      headers: newestRule.responseHeaders || requestInfo.headers || {},
+      body: responseBody,
+      matchedRule: newestRule.id,
+      ruleName: newestRule.name,
+      matchedRulesCount: matchedRules.length,
+      original_url: requestInfo.url
+    };
+  } catch (error) {
+    console.error('应用响应修改规则错误:', error);
+    return null;
+  }
+}
+
 // 初始化数据库
 initDb();
 
@@ -926,5 +1238,12 @@ export default {
   addCaptureRule,
   deleteCaptureRule,
   clearAllCaptureRules,
-  updateCaptureRuleStatus
+  updateCaptureRuleStatus,
+  getAllResponseRules,
+  findResponseRuleById,
+  addResponseRule,
+  updateResponseRule,
+  deleteResponseRule,
+  updateResponseRuleStatus,
+  applyResponseRules
 }; 
