@@ -1,7 +1,4 @@
-import fs from 'fs';
-import path from 'path';
 import logger from '../utils/logger.js';
-import config from '../config/env.js';
 import { generateRequestId } from '../utils/helpers.js';
 import db from '../models/db.js';
 
@@ -13,7 +10,23 @@ export async function captureRequest(req, res) {
     const requestId = req.requestId || generateRequestId();
     logger.info(`[${requestId}] 接收到重写脚本请求捕获: ${req.body.method} ${req.body.url}`);
 
-    // 保存捕获的请求信息
+    // 检查是否匹配拦截规则
+    const interceptResult = await db.applyInterceptRules(req.body);
+    
+    // 如果请求被拦截，返回特殊标记
+    if (interceptResult) {
+      logger.info(`[${requestId}] 请求已被拦截: ${req.body.method} ${req.body.url}`);
+      logger.info(`[${requestId}] 匹配规则: ${interceptResult.ruleName} (ID: ${interceptResult.matchedRuleId})`);
+      
+      // 返回拦截成功标记，不返回实际内容
+      return res.status(200).json({
+        intercepted: true,
+        message: '请求已被拦截',
+        request_id: interceptResult.id
+      });
+    }
+
+    // 没有被拦截，正常处理请求捕获
     const capturedRequest = {
       ...req.body,
       capture_type: 'rewrite_request',

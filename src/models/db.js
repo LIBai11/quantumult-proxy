@@ -16,6 +16,8 @@ const responsesDbPath = join(dbDir, 'responses.json');
 const modifiedResponsesDbPath = join(dbDir, 'modified_responses.json');
 const captureRulesDbPath = join(dbDir, 'capture_rules.json');
 const responseRulesDbPath = join(dbDir, 'response_rules.json');
+const interceptRulesDbPath = join(dbDir, 'intercept_rules.json');
+const interceptedRequestsDbPath = join(dbDir, 'intercepted_requests.json');
 
 // 捕获状态 - true表示正在捕获，false表示暂停
 let captureEnabled = true;
@@ -25,6 +27,12 @@ let captureRules = [];
 
 // 响应修改规则列表 - 用于存储特定URL的响应修改规则
 let responseRules = [];
+
+// 请求拦截规则列表 - 用于拦截并修改请求
+let interceptRules = [];
+
+// 请求拦截状态 - true表示启用拦截，false表示禁用
+let interceptEnabled = true;
 
 // 获取当前捕获状态
 function getCaptureStatus() {
@@ -41,6 +49,21 @@ function setCaptureStatus(enabled) {
   return getCaptureStatus();
 }
 
+// 获取当前拦截状态
+function getInterceptStatus() {
+  return {
+    enabled: interceptEnabled,
+    status: interceptEnabled ? 'active' : 'paused',
+    timestamp: new Date().toISOString()
+  };
+}
+
+// 设置拦截状态
+function setInterceptStatus(enabled) {
+  interceptEnabled = !!enabled;
+  return getInterceptStatus();
+}
+
 // 确保各数据库文件存在
 function ensureDbFile(filePath, initialData) {
   if (!fs.existsSync(filePath)) {
@@ -54,6 +77,8 @@ ensureDbFile(responsesDbPath, []);
 ensureDbFile(modifiedResponsesDbPath, []);
 ensureDbFile(captureRulesDbPath, []);
 ensureDbFile(responseRulesDbPath, []);
+ensureDbFile(interceptRulesDbPath, []);
+ensureDbFile(interceptedRequestsDbPath, []);
 
 // 创建各数据库适配器和实例
 const requestsAdapter = new JSONFile(requestsDbPath);
@@ -61,12 +86,16 @@ const responsesAdapter = new JSONFile(responsesDbPath);
 const modifiedResponsesAdapter = new JSONFile(modifiedResponsesDbPath);
 const captureRulesAdapter = new JSONFile(captureRulesDbPath);
 const responseRulesAdapter = new JSONFile(responseRulesDbPath);
+const interceptRulesAdapter = new JSONFile(interceptRulesDbPath);
+const interceptedRequestsAdapter = new JSONFile(interceptedRequestsDbPath);
 
 const requestsDb = new Low(requestsAdapter, []);
 const responsesDb = new Low(responsesAdapter, []);
 const modifiedResponsesDb = new Low(modifiedResponsesAdapter, []);
 const captureRulesDb = new Low(captureRulesAdapter, []);
 const responseRulesDb = new Low(responseRulesAdapter, []);
+const interceptRulesDb = new Low(interceptRulesAdapter, []);
+const interceptedRequestsDb = new Low(interceptedRequestsAdapter, []);
 
 // 初始化数据库结构
 async function initDb() {
@@ -77,7 +106,9 @@ async function initDb() {
       responsesDb.read(),
       modifiedResponsesDb.read(),
       captureRulesDb.read(),
-      responseRulesDb.read()
+      responseRulesDb.read(),
+      interceptRulesDb.read(),
+      interceptedRequestsDb.read()
     ]);
     
     // 初始化默认值
@@ -86,6 +117,8 @@ async function initDb() {
     modifiedResponsesDb.data ||= [];
     captureRulesDb.data ||= [];
     responseRulesDb.data ||= [];
+    interceptRulesDb.data ||= [];
+    interceptedRequestsDb.data ||= [];
     
     // 将捕获规则加载到内存中
     captureRules = [...captureRulesDb.data];
@@ -93,13 +126,18 @@ async function initDb() {
     // 将响应修改规则加载到内存中
     responseRules = [...responseRulesDb.data];
     
+    // 将请求拦截规则加载到内存中
+    interceptRules = [...interceptRulesDb.data];
+    
     // 保存数据
     await Promise.all([
       requestsDb.write(),
       responsesDb.write(),
       modifiedResponsesDb.write(),
       captureRulesDb.write(),
-      responseRulesDb.write()
+      responseRulesDb.write(),
+      interceptRulesDb.write(),
+      interceptedRequestsDb.write()
     ]);
   } catch (error) {
     console.error('初始化数据库错误:', error);
@@ -461,7 +499,7 @@ async function deleteRequestsByHost(host) {
     // 删除相关修改后的响应
     await modifiedResponsesDb.read();
     modifiedResponsesDb.data = modifiedResponsesDb.data.filter(res => 
-      !requestIds.includes(res.request_id) && !requestIds.includes(res.server_request_id)
+      !requestIds.includes(res.request_id) && !res.server_request_id
     );
     await modifiedResponsesDb.write();
     
@@ -566,7 +604,9 @@ function getDbPaths() {
     responsesDbPath,
     modifiedResponsesDbPath,
     captureRulesDbPath,
-    responseRulesDbPath
+    responseRulesDbPath,
+    interceptRulesDbPath,
+    interceptedRequestsDbPath
   };
 }
 
@@ -1206,6 +1246,642 @@ async function applyResponseRules(requestInfo) {
   }
 }
 
+// --------------------- 请求拦截规则操作 ---------------------
+
+/**
+ * 获取所有请求拦截规则
+ */
+async function getAllInterceptRules() {
+  try {
+    await interceptRulesDb.read();
+    return interceptRulesDb.data;
+  } catch (error) {
+    console.error('获取请求拦截规则错误:', error);
+    return [];
+  }
+}
+
+/**
+ * 根据ID查找请求拦截规则
+ */
+async function findInterceptRuleById(ruleId) {
+  try {
+    await interceptRulesDb.read();
+    return interceptRulesDb.data.find(rule => rule.id === ruleId);
+  } catch (error) {
+    console.error('查询请求拦截规则错误:', error);
+    return null;
+  }
+}
+
+/**
+ * 添加请求拦截规则
+ */
+async function addInterceptRule(rule) {
+  try {
+    if (!rule || !rule.host) {
+      return {
+        success: false,
+        error: '规则必须包含host字段'
+      };
+    }
+
+    await interceptRulesDb.read();
+    
+    // 创建新规则对象
+    const newRule = {
+      id: Date.now().toString(36) + Math.random().toString(36).substring(2, 5),
+      enabled: rule.enabled !== undefined ? rule.enabled : true,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      // 规则参数
+      host: rule.host,
+      method: rule.method || '*',
+      pathRegex: rule.pathRegex || '.*',
+      // 请求修改参数
+      modifyHeaders: rule.modifyHeaders || null,
+      modifyBody: rule.modifyBody || null,
+      description: rule.description || '',
+      name: rule.name || `规则 ${interceptRulesDb.data.length + 1}`
+    };
+    
+    // 添加到数据库
+    interceptRulesDb.data.push(newRule);
+    await interceptRulesDb.write();
+    
+    // 更新内存中的规则列表
+    interceptRules = [...interceptRulesDb.data];
+    
+    return {
+      success: true,
+      rule: newRule
+    };
+  } catch (error) {
+    console.error('添加请求拦截规则错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 更新请求拦截规则
+ */
+async function updateInterceptRule(ruleId, updatedRule) {
+  try {
+    await interceptRulesDb.read();
+    
+    const index = interceptRulesDb.data.findIndex(rule => rule.id === ruleId);
+    if (index === -1) {
+      return {
+        success: false,
+        error: '找不到指定的拦截规则'
+      };
+    }
+    
+    // 保留原规则的ID和创建时间
+    const originalRule = interceptRulesDb.data[index];
+    const mergedRule = {
+      ...originalRule,
+      ...updatedRule,
+      id: originalRule.id,
+      createdAt: originalRule.createdAt,
+      updatedAt: new Date().toISOString()
+    };
+    
+    // 更新规则
+    interceptRulesDb.data[index] = mergedRule;
+    await interceptRulesDb.write();
+    
+    // 更新内存中的规则列表
+    interceptRules = [...interceptRulesDb.data];
+    
+    return {
+      success: true,
+      rule: mergedRule
+    };
+  } catch (error) {
+    console.error('更新请求拦截规则错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 删除请求拦截规则
+ */
+async function deleteInterceptRule(ruleId) {
+  try {
+    await interceptRulesDb.read();
+    
+    const initialLength = interceptRulesDb.data.length;
+    interceptRulesDb.data = interceptRulesDb.data.filter(rule => rule.id !== ruleId);
+    
+    if (interceptRulesDb.data.length === initialLength) {
+      return {
+        success: false,
+        error: '找不到指定的拦截规则'
+      };
+    }
+    
+    await interceptRulesDb.write();
+    
+    // 更新内存中的规则列表
+    interceptRules = [...interceptRulesDb.data];
+    
+    return {
+      success: true,
+      deletedCount: initialLength - interceptRulesDb.data.length,
+      message: '拦截规则已删除'
+    };
+  } catch (error) {
+    console.error('删除请求拦截规则错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 更新拦截规则状态
+ */
+async function updateInterceptRuleStatus(ruleId, enabled) {
+  try {
+    await interceptRulesDb.read();
+    
+    const rule = interceptRulesDb.data.find(rule => rule.id === ruleId);
+    if (!rule) {
+      return {
+        success: false,
+        error: '找不到指定的拦截规则'
+      };
+    }
+    
+    // 更新状态
+    rule.enabled = enabled;
+    rule.updatedAt = new Date().toISOString();
+    await interceptRulesDb.write();
+    
+    // 更新内存中的规则列表
+    interceptRules = [...interceptRulesDb.data];
+    
+    return {
+      success: true,
+      rule,
+      message: `规则已${enabled ? '启用' : '禁用'}`
+    };
+  } catch (error) {
+    console.error('更新拦截规则状态错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 检查请求是否匹配拦截规则并应用修改
+ */
+async function applyInterceptRules(requestInfo) {
+  try {
+    if (!requestInfo || !requestInfo.url || !requestInfo.method) {
+      return null;
+    }
+    
+    // 如果拦截功能被禁用，不进行拦截
+    if (!interceptEnabled) {
+      return null;
+    }
+    
+    // 如果没有启用的规则，不需要拦截
+    const activeRules = interceptRules.filter(rule => rule.enabled);
+    if (activeRules.length === 0) {
+      return null;
+    }
+    
+    // 解析URL
+    const urlObj = new URL(requestInfo.url);
+    const host = urlObj.hostname;
+    const path = urlObj.pathname + urlObj.search;
+    const method = requestInfo.method.toUpperCase();
+    
+    // 检查是否有匹配的规则
+    let matchedRule = null;
+    
+    for (const rule of activeRules) {
+      // 检查主机名是否匹配
+      if (rule.host !== '*' && !host.includes(rule.host)) continue;
+      
+      // 检查请求方法是否匹配
+      if (rule.method !== '*' && rule.method !== method) continue;
+      
+      // 检查路径是否匹配规则的正则表达式
+      try {
+        const pathRegex = new RegExp(rule.pathRegex);
+        if (!pathRegex.test(path)) continue;
+        
+        // 找到匹配的规则
+        matchedRule = rule;
+        break;
+      } catch (regexError) {
+        console.error(`规则 ${rule.id} 的正则表达式无效:`, regexError);
+        continue;
+      }
+    }
+    
+    // 如果没有匹配的规则，不需要拦截
+    if (!matchedRule) {
+      return null;
+    }
+    
+    // 拦截并修改请求
+    const interceptedRequest = {
+      ...requestInfo,
+      intercepted: true,
+      interceptedAt: new Date().toISOString(),
+      originalRequest: {
+        url: requestInfo.url,
+        method: requestInfo.method,
+        headers: { ...requestInfo.headers },
+        body: requestInfo.body
+      },
+      matchedRuleId: matchedRule.id,
+      ruleName: matchedRule.name
+    };
+    
+    // 应用请求头修改
+    if (matchedRule.modifyHeaders) {
+      interceptedRequest.headers = {
+        ...interceptedRequest.headers,
+        ...matchedRule.modifyHeaders
+      };
+    }
+    
+    // 应用请求体修改
+    if (matchedRule.modifyBody) {
+      interceptedRequest.body = matchedRule.modifyBody;
+    }
+    
+    // 保存拦截的请求
+    await saveInterceptedRequest(interceptedRequest);
+    
+    return interceptedRequest;
+  } catch (error) {
+    console.error('应用请求拦截规则错误:', error);
+    return null;
+  }
+}
+
+// --------------------- 拦截请求操作 ---------------------
+
+/**
+ * 保存拦截的请求
+ */
+async function saveInterceptedRequest(request) {
+  try {
+    // 如果拦截功能未启用，直接返回
+    if (!interceptEnabled) {
+      return {
+        success: false,
+        message: '请求拦截功能未启用'
+      };
+    }
+
+    await interceptedRequestsDb.read();
+    
+    // 生成请求ID
+    const requestId = `intercept_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // 保存原始请求
+    const originalRequest = { ...request };
+    delete originalRequest.id;
+    
+    // 应用拦截规则
+    const ruleResult = await applyInterceptRules(request);
+    
+    // 构建拦截请求记录
+    const interceptedRequest = {
+      id: requestId,
+      url: request.url,
+      method: request.method,
+      headers: request.headers || {},
+      body: request.body,
+      intercepted: true,
+      interceptedAt: new Date().toISOString(),
+      originalRequest,
+      autoReleased: !ruleResult.matched, // 如果没有匹配规则，标记为自动放行
+      released: !ruleResult.matched, // 如果没有匹配规则，直接标记为已放行
+      releasedAt: !ruleResult.matched ? new Date().toISOString() : null,
+      matchedRuleId: ruleResult.ruleId || null,
+      ruleName: ruleResult.ruleName || null,
+      modified: ruleResult.modified || false
+    };
+    
+    // 保存到数据库
+    interceptedRequestsDb.data.push(interceptedRequest);
+    await interceptedRequestsDb.write();
+    
+    return {
+      success: true,
+      message: ruleResult.matched ? '请求已拦截' : '请求已自动放行',
+      request: interceptedRequest,
+      matched: ruleResult.matched
+    };
+  } catch (error) {
+    console.error('保存拦截请求错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 分页获取拦截请求列表
+ */
+async function getInterceptedRequestsPaginated(page = 1, limit = 20, host = null, keyword = null, isRegex = false, includeAutoReleased = true) {
+  try {
+    await interceptedRequestsDb.read();
+    
+    let filteredRequests = [...interceptedRequestsDb.data];
+    
+    // 如果不包含自动放行的请求，进行过滤
+    if (!includeAutoReleased) {
+      filteredRequests = filteredRequests.filter(req => !req.autoReleased);
+    }
+    
+    // 按主机过滤
+    if (host) {
+      filteredRequests = filteredRequests.filter(req => {
+        try {
+          const url = new URL(req.url);
+          return url.hostname === host;
+        } catch (e) {
+          return false;
+        }
+      });
+    }
+    
+    // 关键字搜索
+    if (keyword) {
+      const searchPattern = isRegex ? new RegExp(keyword, 'i') : keyword.toLowerCase();
+      
+      filteredRequests = filteredRequests.filter(req => {
+        const searchText = JSON.stringify({
+          url: req.url,
+          method: req.method,
+          headers: req.headers,
+          body: req.body
+        }).toLowerCase();
+        
+        return isRegex ? searchPattern.test(searchText) : searchText.includes(searchPattern);
+      });
+    }
+    
+    // 计算分页
+    const totalItems = filteredRequests.length;
+    const totalPages = Math.ceil(totalItems / limit);
+    const currentPage = Math.min(Math.max(1, page), totalPages);
+    const startIndex = (currentPage - 1) * limit;
+    const endIndex = startIndex + limit;
+    
+    // 按时间倒序排序并分页
+    const paginatedRequests = filteredRequests
+      .sort((a, b) => new Date(b.interceptedAt) - new Date(a.interceptedAt))
+      .slice(startIndex, endIndex);
+    
+    return {
+      totalItems,
+      totalPages,
+      currentPage,
+      pageSize: limit,
+      data: paginatedRequests
+    };
+  } catch (error) {
+    console.error('分页获取拦截请求错误:', error);
+    return {
+      totalItems: 0,
+      totalPages: 0,
+      currentPage: page,
+      pageSize: limit,
+      data: [],
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 根据ID获取拦截请求
+ */
+async function findInterceptedRequestById(requestId) {
+  try {
+    await interceptedRequestsDb.read();
+    return interceptedRequestsDb.data.find(req => req.id === requestId);
+  } catch (error) {
+    console.error('查询拦截请求错误:', error);
+    return null;
+  }
+}
+
+/**
+ * 删除指定ID的拦截请求
+ */
+async function deleteInterceptedRequestById(requestId) {
+  try {
+    await interceptedRequestsDb.read();
+    
+    const initialLength = interceptedRequestsDb.data.length;
+    interceptedRequestsDb.data = interceptedRequestsDb.data.filter(req => req.id !== requestId);
+    
+    if (interceptedRequestsDb.data.length === initialLength) {
+      return {
+        success: false,
+        message: '找不到指定的拦截请求'
+      };
+    }
+    
+    await interceptedRequestsDb.write();
+    
+    return {
+      success: true,
+      deletedCount: initialLength - interceptedRequestsDb.data.length,
+      message: '拦截请求已删除'
+    };
+  } catch (error) {
+    console.error('删除拦截请求错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 删除所有拦截请求
+ */
+async function clearAllInterceptedRequests() {
+  try {
+    await interceptedRequestsDb.read();
+    
+    const deletedCount = interceptedRequestsDb.data.length;
+    interceptedRequestsDb.data = [];
+    await interceptedRequestsDb.write();
+    
+    return {
+      success: true,
+      deletedCount,
+      message: '所有拦截请求已删除'
+    };
+  } catch (error) {
+    console.error('清空拦截请求错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 放行拦截请求
+ */
+async function releaseInterceptedRequest(requestId) {
+  try {
+    await interceptedRequestsDb.read();
+    
+    const request = interceptedRequestsDb.data.find(req => req.id === requestId);
+    if (!request) {
+      return {
+        success: false,
+        message: '找不到指定的拦截请求'
+      };
+    }
+    
+    // 为被放行的请求添加放行标记
+    request.released = true;
+    request.releasedAt = new Date().toISOString();
+    
+    // 保存回数据库
+    await interceptedRequestsDb.write();
+    
+    return {
+      success: true,
+      message: '请求已放行',
+      request
+    };
+  } catch (error) {
+    console.error('放行拦截请求错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
+ * 获取拦截请求统计信息
+ */
+async function getInterceptStats() {
+  try {
+    await interceptedRequestsDb.read();
+    
+    const allIntercepted = interceptedRequestsDb.data || [];
+    const totalIntercepted = allIntercepted.length;
+    
+    // 已放行的请求
+    const releasedRequests = allIntercepted.filter(req => req.released === true);
+    const releasedCount = releasedRequests.length;
+    
+    // 仍被拦截的请求（未放行）
+    const stillInterceptedCount = totalIntercepted - releasedCount;
+    
+    // 被修改的请求（请求头或请求体被修改）
+    const modifiedRequests = allIntercepted.filter(req => {
+      // 检查是否有originalRequest对比字段
+      if (!req.originalRequest) return false;
+      
+      // 检查请求头是否被修改
+      const headersModified = req.originalRequest.headers && 
+        JSON.stringify(req.headers) !== JSON.stringify(req.originalRequest.headers);
+      
+      // 检查请求体是否被修改
+      const bodyModified = req.originalRequest.body !== undefined && 
+        req.body !== req.originalRequest.body;
+      
+      return headersModified || bodyModified;
+    });
+    
+    const modifiedCount = modifiedRequests.length;
+    
+    // 统计各主机的拦截请求
+    const hostStats = {};
+    allIntercepted.forEach(req => {
+      if (req.url) {
+        try {
+          const url = new URL(req.url);
+          const hostname = url.hostname;
+          
+          if (!hostStats[hostname]) {
+            hostStats[hostname] = {
+              hostname,
+              interceptedCount: 0,
+              releasedCount: 0,
+              stillInterceptedCount: 0,
+              modifiedCount: 0
+            };
+          }
+          
+          hostStats[hostname].interceptedCount++;
+          
+          if (req.released) {
+            hostStats[hostname].releasedCount++;
+          } else {
+            hostStats[hostname].stillInterceptedCount++;
+          }
+          
+          // 检查是否被修改
+          if (req.originalRequest) {
+            const headersModified = req.originalRequest.headers && 
+              JSON.stringify(req.headers) !== JSON.stringify(req.originalRequest.headers);
+            
+            const bodyModified = req.originalRequest.body !== undefined && 
+              req.body !== req.originalRequest.body;
+            
+            if (headersModified || bodyModified) {
+              hostStats[hostname].modifiedCount++;
+            }
+          }
+        } catch (e) {
+          // 忽略无效URL
+        }
+      }
+    });
+    
+    return {
+      totalIntercepted,
+      releasedCount,
+      stillInterceptedCount,
+      modifiedCount,
+      hosts: Object.values(hostStats).sort((a, b) => b.interceptedCount - a.interceptedCount),
+      lastUpdated: new Date().toISOString()
+    };
+  } catch (error) {
+    console.error('获取拦截请求统计错误:', error);
+    return {
+      totalIntercepted: 0,
+      releasedCount: 0,
+      stillInterceptedCount: 0,
+      modifiedCount: 0,
+      hosts: [],
+      error: error.message,
+      lastUpdated: new Date().toISOString()
+    };
+  }
+}
+
 // 初始化数据库
 initDb();
 
@@ -1231,6 +1907,8 @@ export default {
   getRequestsStats,
   getCaptureStatus,
   setCaptureStatus,
+  getInterceptStatus,
+  setInterceptStatus,
   requestsDb,
   responsesDb,
   modifiedResponsesDb,
@@ -1245,5 +1923,19 @@ export default {
   updateResponseRule,
   deleteResponseRule,
   updateResponseRuleStatus,
-  applyResponseRules
+  applyResponseRules,
+  getAllInterceptRules,
+  findInterceptRuleById,
+  addInterceptRule,
+  updateInterceptRule,
+  deleteInterceptRule,
+  updateInterceptRuleStatus,
+  applyInterceptRules,
+  saveInterceptedRequest,
+  getInterceptedRequestsPaginated,
+  findInterceptedRequestById,
+  deleteInterceptedRequestById,
+  clearAllInterceptedRequests,
+  releaseInterceptedRequest,
+  getInterceptStats
 }; 

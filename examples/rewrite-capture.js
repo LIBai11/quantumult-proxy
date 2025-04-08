@@ -170,22 +170,65 @@ function handleRequestCapture() {
       body: $request.body || null
     };
 
-    // 在请求头中添加请求ID，用于后续匹配响应
-    // 注意：这只是用于在请求和响应之间传递请求ID，不会修改原始请求头
-    if (!$request.headers['X-Capture-Request-Id']) {
-      log(`添加请求ID到自定义头: ${requestId}`);
-    }
-
-    // 不发送请求信息到捕获服务器
-    // sendToCaptureServer(requestInfo, '/api/capture/request');
-
-    log(`请求处理完成: ${requestId}`);
-
-    // 不修改原始请求，直接放行
-    $done({});
+    // 发送请求到捕获服务器并等待拦截判断
+    sendToCaptureServer(requestInfo, '/api/capture/request')
+      .then(response => {
+        try {
+          const result = JSON.parse(response.body);
+          
+          // 如果需要拦截请求
+          if (result.intercepted) {
+            log(`请求被拦截: ${requestId}`);
+            
+            // 如果有修改的请求头或请求体
+            const modifiedRequest = {};
+            
+            if (result.headers) {
+              modifiedRequest.headers = result.headers;
+            }
+            
+            if (result.body) {
+              modifiedRequest.body = result.body;
+            }
+            
+            // 如果请求被拒绝（不允许发送到目标服务器）
+            if (result.rejected) {
+              log(`请求被拒绝: ${requestId}`);
+              $done({
+                response: {
+                  status: result.status || 403,
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    error: 'Request intercepted and rejected',
+                    requestId: requestId
+                  })
+                }
+              });
+              return;
+            }
+            
+            // 如果请求被修改，使用修改后的请求
+            if (Object.keys(modifiedRequest).length > 0) {
+              log(`使用修改后的请求: ${requestId}`);
+              $done(modifiedRequest);
+              return;
+            }
+          }
+          
+          // 请求未被拦截或无需修改，直接放行
+          log(`请求处理完成: ${requestId}`);
+          $done({});
+        } catch (parseError) {
+          log(`解析拦截响应失败: ${parseError.message}`);
+          $done({});
+        }
+      })
+      .catch(error => {
+        log(`请求拦截服务调用失败: ${error}`);
+        $done({});
+      });
   } catch (error) {
     log(`处理请求失败: ${error.message}`);
-    // 出错时也不影响原始请求
     $done({});
   }
 }

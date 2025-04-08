@@ -1,8 +1,3 @@
-import express from 'express';
-import cors from 'cors';
-import fs from 'fs';
-import path from 'path';
-import { createLogger, format, transports } from 'winston';
 import dotenv from 'dotenv';
 import os from 'os';
 import app from './app.js';
@@ -10,8 +5,6 @@ import config from './config/env.js';
 import logger from './utils/logger.js';
 import { cleanupOldRequests } from './utils/helpers.js';
 import { setupUnhandledRejectionHandler, setupUncaughtExceptionHandler } from './middleware/errorHandlers.js';
-import apiRoutes from './routes/api.js';
-import * as captureController from './controllers/captureController.js';
 import dbServer from './models/dbServer.js';
 
 // 加载环境变量
@@ -34,6 +27,7 @@ logger.info(`环境: ${process.env.NODE_ENV || 'development'}`);
 logger.info(`日志级别: ${config.logLevel}`);
 logger.info(`请求体大小限制: ${config.bodyLimit}`);
 logger.info(`请求保留天数: ${config.retentionDays}天`);
+logger.info(`ARK_API_KEY: ${process.env.ARK_API_KEY || '未设置'}`);
 
 // 设置未捕获错误处理
 setupUnhandledRejectionHandler();

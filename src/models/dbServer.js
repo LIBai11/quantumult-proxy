@@ -1,8 +1,5 @@
-import { join } from 'path';
 import { createRequire } from 'module';
-import config from '../config/env.js';
 import logger from '../utils/logger.js';
-import fs from 'fs';
 import db from './db.js';
 
 // 默认导出对象
@@ -13,12 +10,11 @@ let exportObject = {
   server: null,
   router: null
 };
-
 try {
   // 使用createRequire来导入CommonJS模块
   const require = createRequire(import.meta.url);
   const jsonServer = require('json-server');
-  const { dbDir } = db.getDbPaths();
+  const { rootDir: dbDir } = db.getDbPaths();
 
   // 创建json-server实例
   const server = jsonServer.create();

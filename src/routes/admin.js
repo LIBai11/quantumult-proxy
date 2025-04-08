@@ -2,6 +2,8 @@ import express from 'express';
 import db from '../models/db.js';
 import logger from '../utils/logger.js';
 import fs from 'fs';
+import axios from 'axios';
+import crypto from 'crypto';
 
 const router = express.Router();
 
@@ -722,6 +724,543 @@ router.patch('/response-rules/:id/status', async (req, res) => {
     }
   } catch (error) {
     logger.error(`更新响应修改规则状态错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// -------------------------- 请求拦截规则管理 --------------------------
+
+// 获取所有请求拦截规则
+router.get('/intercept-rules', async (req, res) => {
+  try {
+    const rules = await db.getAllInterceptRules();
+    return res.json(rules);
+  } catch (error) {
+    logger.error(`获取请求拦截规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取单个请求拦截规则
+router.get('/intercept-rules/:id', async (req, res) => {
+  try {
+    const rule = await db.findInterceptRuleById(req.params.id);
+    if (!rule) {
+      return res.status(404).json({ error: '找不到指定的请求拦截规则' });
+    }
+    return res.json(rule);
+  } catch (error) {
+    logger.error(`获取请求拦截规则详情错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 创建新的请求拦截规则
+router.post('/intercept-rules', async (req, res) => {
+  try {
+    const result = await db.addInterceptRule(req.body);
+    if (result.success) {
+      return res.status(201).json(result.rule);
+    } else {
+      return res.status(400).json({ error: result.error });
+    }
+  } catch (error) {
+    logger.error(`创建请求拦截规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 更新请求拦截规则
+router.put('/intercept-rules/:id', async (req, res) => {
+  try {
+    const result = await db.updateInterceptRule(req.params.id, req.body);
+    if (result.success) {
+      return res.json(result.rule);
+    } else {
+      return res.status(404).json({ error: result.error });
+    }
+  } catch (error) {
+    logger.error(`更新请求拦截规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 删除请求拦截规则
+router.delete('/intercept-rules/:id', async (req, res) => {
+  try {
+    const result = await db.deleteInterceptRule(req.params.id);
+    if (result.success) {
+      return res.json({ 
+        success: true, 
+        message: `已删除请求拦截规则`,
+        deletedCount: result.deletedCount 
+      });
+    } else {
+      return res.status(404).json({ error: result.error });
+    }
+  } catch (error) {
+    logger.error(`删除请求拦截规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 启用请求拦截规则
+router.patch('/intercept-rules/:id/enable', async (req, res) => {
+  try {
+    const result = await db.updateInterceptRuleStatus(req.params.id, true);
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: "规则已启用",
+        rule: result.rule
+      });
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: result.error || '未找到指定规则'
+      });
+    }
+  } catch (error) {
+    logger.error(`启用请求拦截规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 禁用请求拦截规则
+router.patch('/intercept-rules/:id/disable', async (req, res) => {
+  try {
+    const result = await db.updateInterceptRuleStatus(req.params.id, false);
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: "规则已禁用",
+        rule: result.rule
+      });
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: result.error || '未找到指定规则'
+      });
+    }
+  } catch (error) {
+    logger.error(`禁用请求拦截规则错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// -------------------------- 拦截请求管理 --------------------------
+
+// 分页查询拦截请求列表（支持主机过滤、关键字/正则查询）
+router.get('/intercepted-requests-paginated', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const host = req.query.host || null;
+    const keyword = req.query.keyword || null;
+    const isRegex = req.query.isRegex === 'true';
+    const includeAutoReleased = req.query.includeAutoReleased !== 'false'; // 默认为true
+
+    const result = await db.getInterceptedRequestsPaginated(page, limit, host, keyword, isRegex, includeAutoReleased);
+    
+    // 添加拦截状态信息
+    const interceptStatus = db.getInterceptStatus();
+    result.interceptStatus = interceptStatus;
+    
+    return res.json(result);
+  } catch (error) {
+    logger.error(`分页查询拦截请求错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取指定ID的拦截请求
+router.get('/intercepted-requests/:id', async (req, res) => {
+  try {
+    const request = await db.findInterceptedRequestById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ error: '拦截请求不存在' });
+    }
+    return res.json(request);
+  } catch (error) {
+    logger.error(`获取拦截请求详情错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 删除指定ID的拦截请求
+router.delete('/intercepted-requests/:id', async (req, res) => {
+  try {
+    const result = await db.deleteInterceptedRequestById(req.params.id);
+    
+    if (result.success) {
+      return res.json({ 
+        success: true, 
+        message: `已删除拦截请求`, 
+        deletedCount: result.deletedCount 
+      });
+    } else {
+      return res.status(404).json({ 
+        success: false, 
+        message: result.message || '找不到指定拦截请求'
+      });
+    }
+  } catch (error) {
+    logger.error(`删除拦截请求错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 放行指定ID的拦截请求
+router.post('/intercepted-requests/:id/release', async (req, res) => {
+  try {
+    const result = await db.releaseInterceptedRequest(req.params.id);
+    
+    if (result.success) {
+      return res.json({ 
+        success: true, 
+        message: `已放行拦截请求`,
+        request: result.request
+      });
+    } else {
+      return res.status(404).json({ 
+        success: false, 
+        message: result.message || '找不到指定拦截请求'
+      });
+    }
+  } catch (error) {
+    logger.error(`放行拦截请求错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 清空所有拦截请求
+router.delete('/intercepted-requests', async (req, res) => {
+  try {
+    // 确保请求包含确认标志
+    if (req.body.confirm !== 'YES_RELEASE_ALL') {
+      return res.status(400).json({ 
+        success: false, 
+        message: '请提供确认标志以清空所有拦截请求' 
+      });
+    }
+    
+    const result = await db.clearAllInterceptedRequests();
+    
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: `已清空所有拦截请求，共 ${result.deletedCount} 条`
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        message: result.error || '清空拦截请求失败'
+      });
+    }
+  } catch (error) {
+    logger.error(`清空拦截请求错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 批量放行拦截请求
+router.post('/intercepted-requests/batch-release', async (req, res) => {
+  try {
+    if (!req.body.ids || !Array.isArray(req.body.ids) || req.body.ids.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: '请提供要放行的请求ID数组' 
+      });
+    }
+    
+    const ids = req.body.ids;
+    const results = [];
+    let releasedCount = 0;
+    
+    // 逐个放行请求
+    for (const id of ids) {
+      const result = await db.releaseInterceptedRequest(id);
+      results.push({
+        id,
+        success: result.success,
+        message: result.message
+      });
+      
+      if (result.success) {
+        releasedCount++;
+      }
+    }
+    
+    return res.json({
+      success: true,
+      message: `成功放行 ${releasedCount} 条拦截请求`,
+      details: results
+    });
+  } catch (error) {
+    logger.error(`批量放行拦截请求错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取拦截状态
+router.get('/intercept-status', (req, res) => {
+  try {
+    const status = db.getInterceptStatus();
+    return res.json(status);
+  } catch (error) {
+    logger.error(`获取拦截状态错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 设置拦截状态
+router.post('/intercept-status', (req, res) => {
+  try {
+    const enabled = req.body.enabled;
+    
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ 
+        success: false, 
+        message: '请提供有效的启用状态（布尔值）' 
+      });
+    }
+    
+    const status = db.setInterceptStatus(enabled);
+    
+    return res.json({
+      success: true,
+      message: enabled ? '已启用请求拦截' : '已禁用请求拦截',
+      status
+    });
+  } catch (error) {
+    logger.error(`设置拦截状态错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取拦截请求统计信息
+router.get('/intercept-stats', async (req, res) => {
+  try {
+    const stats = await db.getInterceptStats();
+    return res.json(stats);
+  } catch (error) {
+    logger.error(`获取拦截请求统计错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// -------------------------- 火山大模型 API --------------------------
+
+// 获取火山大模型列表
+router.get('/volcengine/models', async (req, res) => {
+  try {
+    // 这个接口目前只返回配置好的模型列表
+    const models = [
+      {
+        id: 'doubao-1-5-pro-32k-250115',
+        name: '豆包大模型专业版',
+        maxTokens: '12k',
+        description: '新一代专业版大模型，单价不提升的同时，模型能力有大幅提升，在知识（MMLU_PRO：80.2； GPQA：66.2）、代码（FullStackBench：65.1）、推理（DROP：92.6）、中文（C-Eval：91.5）等相关的多项测评中获得高分，达到行业SOTA水平。'
+      }
+    ];
+    
+    return res.json({
+      success: true,
+      models: models
+    });
+  } catch (error) {
+    logger.error(`获取火山大模型列表错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 调用火山大模型接口
+router.post('/volcengine/chat', async (req, res) => {
+  try {
+    const { model, messages, apiKey, temperature, max_tokens, stream } = req.body;
+    
+    if (!model) {
+      return res.status(400).json({ error: '缺少模型ID参数' });
+    }
+    
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+      return res.status(400).json({ error: '缺少对话消息参数' });
+    }
+
+    
+    // 优先使用请求中提供的apiKey，否则使用环境变量
+    const actualApiKey = apiKey || process.env.ARK_API_KEY;
+    
+    if (!actualApiKey) {
+      return res.status(400).json({ error: '缺少API密钥参数，请在请求中提供apiKey或设置环境变量ARK_API_KEY' });
+    }
+    
+    // 构建请求参数
+    const requestData = {
+      model: model,
+      messages: messages,
+      temperature: temperature || 0,
+      // max_tokens: max_tokens || 1024
+    };
+    
+    // 如果提供了max_tokens，则添加到请求中
+    if (max_tokens) {
+      requestData.max_tokens = max_tokens;
+    }
+    
+    // 添加stream参数
+    if (stream) {
+      requestData.stream = true;
+    }
+    
+    // 处理流式响应
+    if (stream) {
+      // 设置响应头，支持流式传输
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      
+      try {
+        // 使用axios发送请求，不使用await以实现真正的流式传输
+        axios.post(
+          'https://ark.cn-beijing.volces.com/api/v3/chat/completions',
+          requestData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${actualApiKey}`
+            },
+            responseType: 'stream'
+          }
+        )
+        .then(response => {
+          // 将火山API的响应流转发给客户端
+          response.data.on('data', (chunk) => {
+            try {
+              const chunkStr = chunk.toString();
+              // 火山模型API通常返回data: {json}格式的SSE数据
+              res.write(chunkStr + '\n');
+              if (res.flush) res.flush();
+            } catch (e) {
+              logger.error(`处理流式数据出错: ${e.message}`);
+            }
+          });
+          
+          response.data.on('end', () => {
+            res.end();
+          });
+          
+          response.data.on('error', (err) => {
+            logger.error(`流式响应错误: ${err.message}`);
+            res.end(`data: [ERROR] ${err.message}\n\n`);
+          });
+        })
+        .catch(error => {
+          // 处理流式响应过程中的错误
+          const errorMessage = error.response
+            ? `API流式处理错误: ${error.response.status} - ${JSON.stringify(error.response.data)}`
+            : error.message;
+          
+          logger.error(`调用火山大模型流式接口错误: ${errorMessage}`);
+          res.write(`data: ${JSON.stringify({ error: errorMessage })}\n\n`);
+          res.end();
+        });
+        
+        // 不要在这里使用return，允许请求继续处理
+      } catch (error) {
+        // 处理axios初始化错误
+        logger.error(`初始化流式请求错误: ${error.message}`);
+        res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        res.end();
+      }
+    } else {
+      // 非流式响应，保持原有逻辑
+      try {
+        const response = await axios.post(
+          'https://ark.cn-beijing.volces.com/api/v3/chat/completions', 
+          requestData,
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${actualApiKey}`
+            }
+          }
+        );
+        
+        return res.json({
+          success: true,
+          result: response.data
+        });
+      } catch (error) {
+        // 处理API调用错误
+        const errorMessage = error.response 
+          ? `API错误: ${error.response.status} - ${JSON.stringify(error.response.data)}` 
+          : error.message;
+        
+        logger.error(`调用火山大模型错误: ${errorMessage}`);
+        return res.status(error.response ? error.response.status : 500).json({ 
+          error: errorMessage 
+        });
+      }
+    }
+  } catch (error) {
+    logger.error(`处理火山大模型请求错误: ${error.message}`);
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// 获取文本嵌入向量
+router.post('/volcengine/embeddings', async (req, res) => {
+  try {
+    const { text, apiKey } = req.body;
+    
+    if (!text) {
+      return res.status(400).json({ error: '缺少文本参数' });
+    }
+    
+    // 优先使用请求中提供的apiKey，否则使用环境变量
+    const actualApiKey = apiKey || process.env.ARK_API_KEY;
+    
+    if (!actualApiKey) {
+      return res.status(400).json({ error: '缺少API密钥参数，请在请求中提供apiKey或设置环境变量ARK_API_KEY' });
+    }
+    
+    // 构建请求参数
+    const requestData = {
+      model: 'doubao-embedding',
+      input: Array.isArray(text) ? text : [text]
+    };
+    
+    // 调用火山大模型嵌入API
+    try {
+      const response = await axios.post(
+        'https://ark.cn-beijing.volces.com/api/v3/embeddings', 
+        requestData,
+        {
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${actualApiKey}`
+          }
+        }
+      );
+      
+      return res.json({
+        success: true,
+        result: response.data
+      });
+    } catch (error) {
+      // 处理API调用错误
+      const errorMessage = error.response 
+        ? `API错误: ${error.response.status} - ${JSON.stringify(error.response.data)}` 
+        : error.message;
+      
+      logger.error(`获取文本嵌入向量错误: ${errorMessage}`);
+      return res.status(error.response ? error.response.status : 500).json({ 
+        error: errorMessage 
+      });
+    }
+  } catch (error) {
+    logger.error(`处理文本嵌入向量请求错误: ${error.message}`);
     return res.status(500).json({ error: error.message });
   }
 });

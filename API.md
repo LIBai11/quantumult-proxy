@@ -525,4 +525,595 @@
 {
   "error": "错误消息描述"
 }
-``` 
+```
+
+## 请求拦截规则管理
+
+请求拦截规则用于拦截匹配条件的请求，可以选择修改请求头和请求体。拦截的请求会被存储，不会被发送到目标服务器。
+
+### 获取拦截状态
+
+- **URL**: `GET /intercept-status`
+- **描述**: 获取当前请求拦截功能的启用状态
+- **参数**: 无
+- **响应示例**:
+```json
+{
+  "enabled": true,
+  "status": "active",
+  "timestamp": "2023-09-01T12:34:56.789Z"
+}
+```
+
+### 设置拦截状态
+
+- **URL**: `POST /intercept-status`
+- **描述**: 启用或禁用请求拦截功能
+- **请求体**:
+```json
+{
+  "enabled": true
+}
+```
+- **参数说明**:
+  - `enabled`: 是否启用拦截功能，布尔值（必填）
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "已启用请求拦截",
+  "status": {
+    "enabled": true,
+    "status": "active",
+    "timestamp": "2023-09-01T12:34:56.789Z"
+  }
+}
+```
+
+### 获取所有请求拦截规则
+
+- **URL**: `GET /intercept-rules`
+- **描述**: 获取所有请求拦截规则
+- **参数**: 无
+- **响应示例**:
+```json
+[
+  {
+    "id": "rule_1631234567890_123",
+    "name": "拦截敏感API请求",
+    "host": "api.example.com",
+    "pathRegex": "^/api/v1/sensitive/.*$",
+    "method": "POST",
+    "enabled": true,
+    "modifyHeaders": {
+      "X-Modified-Header": "intercepted"
+    },
+    "modifyBody": "{\"modified\":true}",
+    "description": "拦截包含敏感信息的API请求",
+    "createdAt": "2023-09-01T12:34:56.789Z",
+    "updatedAt": "2023-09-01T12:34:56.789Z"
+  }
+]
+```
+
+### 获取单个请求拦截规则
+
+- **URL**: `GET /intercept-rules/:id`
+- **描述**: 获取指定ID的请求拦截规则详情
+- **参数**:
+  - `id`: 规则ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "id": "rule_1631234567890_123",
+  "name": "拦截敏感API请求",
+  "host": "api.example.com",
+  "pathRegex": "^/api/v1/sensitive/.*$",
+  "method": "POST",
+  "enabled": true,
+  "modifyHeaders": {
+    "X-Modified-Header": "intercepted"
+  },
+  "modifyBody": "{\"modified\":true}",
+  "description": "拦截包含敏感信息的API请求",
+  "createdAt": "2023-09-01T12:34:56.789Z",
+  "updatedAt": "2023-09-01T12:34:56.789Z"
+}
+```
+
+### 创建请求拦截规则
+
+- **URL**: `POST /intercept-rules`
+- **描述**: 创建新的请求拦截规则
+- **请求体**:
+```json
+{
+  "name": "拦截敏感API请求",
+  "host": "api.example.com",
+  "pathRegex": "^/api/v1/sensitive/.*$",
+  "method": "POST",
+  "enabled": true,
+  "modifyHeaders": {
+    "X-Modified-Header": "intercepted"
+  },
+  "modifyBody": "{\"modified\":true}",
+  "description": "拦截包含敏感信息的API请求"
+}
+```
+- **参数说明**:
+  - `name`: 规则名称（必填）
+  - `host`: 主机名匹配，使用 '*' 匹配所有主机（必填）
+  - `pathRegex`: 路径正则表达式匹配（必填）
+  - `method`: HTTP方法匹配，使用 '*' 匹配所有方法（必填）
+  - `enabled`: 是否启用，默认为true（可选）
+  - `modifyHeaders`: 修改的请求头（可选）
+  - `modifyBody`: 修改的请求体（可选）
+  - `description`: 规则描述（可选）
+- **响应示例**:
+```json
+{
+  "id": "rule_1631234567890_123",
+  "name": "拦截敏感API请求",
+  "host": "api.example.com",
+  "pathRegex": "^/api/v1/sensitive/.*$",
+  "method": "POST",
+  "enabled": true,
+  "modifyHeaders": {
+    "X-Modified-Header": "intercepted"
+  },
+  "modifyBody": "{\"modified\":true}",
+  "description": "拦截包含敏感信息的API请求",
+  "createdAt": "2023-09-01T12:34:56.789Z",
+  "updatedAt": "2023-09-01T12:34:56.789Z"
+}
+```
+
+### 更新请求拦截规则
+
+- **URL**: `PUT /intercept-rules/:id`
+- **描述**: 更新指定ID的请求拦截规则
+- **参数**:
+  - `id`: 规则ID，URL路径参数
+- **请求体**:
+```json
+{
+  "name": "更新后的拦截规则",
+  "pathRegex": "^/api/v1/sensitive/data/.*$",
+  "modifyHeaders": {
+    "X-Modified-Header": "updated-value"
+  }
+}
+```
+- **响应示例**:
+```json
+{
+  "id": "rule_1631234567890_123",
+  "name": "更新后的拦截规则",
+  "host": "api.example.com",
+  "pathRegex": "^/api/v1/sensitive/data/.*$",
+  "method": "POST",
+  "enabled": true,
+  "modifyHeaders": {
+    "X-Modified-Header": "updated-value"
+  },
+  "modifyBody": "{\"modified\":true}",
+  "description": "拦截包含敏感信息的API请求",
+  "createdAt": "2023-09-01T12:34:56.789Z",
+  "updatedAt": "2023-09-01T14:35:46.123Z"
+}
+```
+
+### 删除请求拦截规则
+
+- **URL**: `DELETE /intercept-rules/:id`
+- **描述**: 删除指定ID的请求拦截规则
+- **参数**:
+  - `id`: 规则ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "已删除请求拦截规则",
+  "deletedCount": 1
+}
+```
+
+### 启用请求拦截规则
+
+- **URL**: `PATCH /intercept-rules/:id/enable`
+- **描述**: 启用指定的请求拦截规则
+- **参数**:
+  - `id`: 规则ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "规则已启用",
+  "rule": {
+    "id": "rule_1631234567890_123",
+    "name": "拦截敏感API请求",
+    "host": "api.example.com",
+    "pathRegex": "^/api/v1/sensitive/.*$",
+    "method": "POST",
+    "enabled": true,
+    "modifyHeaders": {
+      "X-Modified-Header": "intercepted"
+    },
+    "modifyBody": "{\"modified\":true}",
+    "description": "拦截包含敏感信息的API请求",
+    "createdAt": "2023-09-01T12:34:56.789Z",
+    "updatedAt": "2023-09-01T15:45:23.456Z"
+  }
+}
+```
+
+### 禁用请求拦截规则
+
+- **URL**: `PATCH /intercept-rules/:id/disable`
+- **描述**: 禁用指定的请求拦截规则
+- **参数**:
+  - `id`: 规则ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "规则已禁用",
+  "rule": {
+    "id": "rule_1631234567890_123",
+    "name": "拦截敏感API请求",
+    "host": "api.example.com",
+    "pathRegex": "^/api/v1/sensitive/.*$",
+    "method": "POST",
+    "enabled": false,
+    "modifyHeaders": {
+      "X-Modified-Header": "intercepted"
+    },
+    "modifyBody": "{\"modified\":true}",
+    "description": "拦截包含敏感信息的API请求",
+    "createdAt": "2023-09-01T12:34:56.789Z",
+    "updatedAt": "2023-09-01T15:45:23.456Z"
+  }
+}
+```
+
+## 拦截请求管理
+
+拦截请求管理API用于查询和管理被拦截的请求。
+
+### 获取拦截请求统计信息
+
+- **URL**: `GET /intercept-stats`
+- **描述**: 获取拦截请求的统计信息，包括总数、已放行数、仍被拦截数以及修改的请求数
+- **参数**: 无
+- **响应示例**:
+```json
+{
+  "totalIntercepted": 42,
+  "releasedCount": 15,
+  "stillInterceptedCount": 27,
+  "modifiedCount": 35,
+  "hosts": [
+    {
+      "hostname": "api.example.com",
+      "interceptedCount": 25,
+      "releasedCount": 10,
+      "stillInterceptedCount": 15,
+      "modifiedCount": 20
+    },
+    {
+      "hostname": "other.example.org",
+      "interceptedCount": 17,
+      "releasedCount": 5,
+      "stillInterceptedCount": 12,
+      "modifiedCount": 15
+    }
+  ],
+  "lastUpdated": "2023-09-01T12:34:56.789Z"
+}
+```
+
+### 分页获取拦截请求列表
+
+- **URL**: `GET /intercepted-requests-paginated`
+- **描述**: 分页获取拦截请求列表，支持主机过滤、关键字/正则查询，可选择是否包含自动放行的请求
+- **参数**:
+  - `page`: 页码，默认1
+  - `limit`: 每页条数，默认20
+  - `host`: 按主机名过滤，可选
+  - `keyword`: 关键字搜索，可选
+  - `isRegex`: 是否使用正则表达式搜索，可选，'true'或'false'
+  - `includeAutoReleased`: 是否包含自动放行的请求，可选，默认为'true'
+- **响应示例**:
+```json
+{
+  "totalItems": 42,
+  "totalPages": 3,
+  "currentPage": 1,
+  "pageSize": 20,
+  "interceptStatus": {
+    "enabled": true,
+    "status": "active",
+    "timestamp": "2024-03-21T12:34:56.789Z"
+  },
+  "data": [
+    {
+      "id": "intercept_1631234567890_123",
+      "url": "https://api.example.com/api/v1/sensitive/data",
+      "method": "POST",
+      "headers": {
+        "content-type": "application/json",
+        "x-modified-header": "intercepted"
+      },
+      "body": "{\"modified\":true}",
+      "intercepted": true,
+      "interceptedAt": "2023-09-01T12:34:56.890Z",
+      "autoReleased": false,
+      "released": false,
+      "releasedAt": null,
+      "originalRequest": {
+        "url": "https://api.example.com/api/v1/sensitive/data",
+        "method": "POST",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"username\":\"test\",\"password\":\"secret\"}"
+      },
+      "matchedRuleId": "rule_1631234567890_123",
+      "ruleName": "拦截敏感API请求"
+    }
+  ]
+}
+```
+
+### 获取拦截请求详情
+
+- **URL**: `GET /intercepted-requests/:id`
+- **描述**: 获取指定ID的拦截请求详情
+- **参数**:
+  - `id`: 请求ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "id": "intercept_1631234567890_123",
+  "url": "https://api.example.com/api/v1/sensitive/data",
+  "method": "POST",
+  "headers": {
+    "content-type": "application/json",
+    "x-modified-header": "intercepted"
+  },
+  "body": "{\"modified\":true}",
+  "intercepted": true,
+  "interceptedAt": "2023-09-01T12:34:56.890Z",
+  "originalRequest": {
+    "url": "https://api.example.com/api/v1/sensitive/data",
+    "method": "POST",
+    "headers": {
+      "content-type": "application/json"
+    },
+    "body": "{\"username\":\"test\",\"password\":\"secret\"}"
+  },
+  "matchedRuleId": "rule_1631234567890_123",
+  "ruleName": "拦截敏感API请求"
+}
+```
+
+### 删除拦截请求
+
+- **URL**: `DELETE /intercepted-requests/:id`
+- **描述**: 删除指定ID的拦截请求
+- **参数**:
+  - `id`: 请求ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "已删除拦截请求",
+  "deletedCount": 1
+}
+```
+
+### 放行拦截请求
+
+- **URL**: `POST /intercepted-requests/:id/release`
+- **描述**: 放行指定ID的拦截请求，将请求标记为已放行
+- **参数**:
+  - `id`: 请求ID，URL路径参数
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "已放行拦截请求",
+  "request": {
+    "id": "intercept_1631234567890_123",
+    "url": "https://api.example.com/api/v1/sensitive/data",
+    "method": "POST",
+    "headers": {
+      "content-type": "application/json",
+      "x-modified-header": "intercepted"
+    },
+    "body": "{\"modified\":true}",
+    "intercepted": true,
+    "interceptedAt": "2023-09-01T12:34:56.890Z",
+    "released": true,
+    "releasedAt": "2023-09-01T13:45:23.456Z",
+    "originalRequest": {
+      "url": "https://api.example.com/api/v1/sensitive/data",
+      "method": "POST",
+      "headers": {
+        "content-type": "application/json"
+      },
+      "body": "{\"username\":\"test\",\"password\":\"secret\"}"
+    },
+    "matchedRuleId": "rule_1631234567890_123",
+    "ruleName": "拦截敏感API请求"
+  }
+}
+```
+
+### 批量放行拦截请求
+
+- **URL**: `POST /intercepted-requests/batch-release`
+- **描述**: 批量放行多个拦截请求
+- **请求体**:
+```json
+{
+  "ids": ["intercept_1631234567890_123", "intercept_1631234567890_456"]
+}
+```
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "成功放行 2 条拦截请求",
+  "details": [
+    {
+      "id": "intercept_1631234567890_123",
+      "success": true,
+      "message": "请求已放行"
+    },
+    {
+      "id": "intercept_1631234567890_456",
+      "success": true,
+      "message": "请求已放行"
+    }
+  ]
+}
+```
+
+### 清空所有拦截请求
+
+- **URL**: `DELETE /intercepted-requests`
+- **描述**: 删除所有拦截请求
+- **请求体**:
+```json
+{
+  "confirm": "YES_RELEASE_ALL"
+}
+```
+- **响应示例**:
+```json
+{
+  "success": true,
+  "message": "已清空所有拦截请求，共 42 条"
+}
+```
+
+## 火山大模型 API
+
+以下接口提供与火山方舟大模型服务的交互能力，支持获取模型列表、调用大模型生成内容以及获取文本的嵌入向量表示。
+
+### 获取支持的大模型列表
+
+- **URL**: `GET /volcengine/models`
+- **描述**: 获取系统支持的火山大模型列表
+- **参数**: 无
+- **响应示例**:
+  ```json
+  {
+    "success": true,
+    "models": [
+      {
+        "id": "doubao-1-5-pro-32k-250115",
+        "name": "豆包大模型专业版",
+        "maxTokens": "12k",
+        "description": "新一代专业版大模型，单价不提升的同时，模型能力有大幅提升，在知识（MMLU_PRO：80.2； GPQA：66.2）、代码（FullStackBench：65.1）、推理（DROP：92.6）、中文（C-Eval：91.5）等相关的多项测评中获得高分，达到行业SOTA水平。"
+      }
+    ]
+  }
+  ```
+
+### 调用大模型生成回复
+
+- **URL**: `POST /volcengine/chat`
+- **描述**: 调用火山大模型进行对话生成
+- **请求体**:
+  ```json
+  {
+    "model": "doubao-1-5-pro-32k-250115",
+    "messages": [
+      {
+        "role": "user",
+        "content": "你好，请介绍一下自己"
+      }
+    ],
+    "temperature": 0,
+    "max_tokens": 1024
+  }
+  ```
+- **参数说明**:
+  - `model`: 模型ID，必填
+  - `messages`: 对话消息数组，必填
+  - `apiKey`: 火山方舟API密钥，可选（如未提供将使用环境变量ARK_API_KEY）
+  - `temperature`: 温度参数，控制随机性，可选，默认0
+  - `max_tokens`: 最大生成token数，可选
+- **响应示例**:
+  ```json
+  {
+    "success": true,
+    "result": {
+      "id": "chatcmpl-123456789",
+      "object": "chat.completion",
+      "created": 1677858242,
+      "model": "doubao-1-5-pro-32k-250115",
+      "usage": {
+        "prompt_tokens": 13,
+        "completion_tokens": 126,
+        "total_tokens": 139
+      },
+      "choices": [
+        {
+          "message": {
+            "role": "assistant",
+            "content": "你好！我是豆包大模型，一个由字节跳动研发的人工智能助手。我能够理解和生成人类语言，回答问题，提供信息，协助完成各种任务。我的知识截止到训练数据的最后更新日期，所以关于更新后的事件可能无法提供准确信息。有什么我可以帮助你的吗？"
+          },
+          "finish_reason": "stop",
+          "index": 0
+        }
+      ]
+    }
+  }
+  ```
+
+### 获取文本嵌入向量
+
+- **URL**: `POST /volcengine/embeddings`
+- **描述**: 将文本转换为嵌入向量表示
+- **请求体**:
+  ```json
+  {
+    "text": "这是一段需要向量化的文本"
+  }
+  ```
+- **参数说明**:
+  - `text`: 需要转换的文本，可以是字符串或字符串数组，必填
+  - `apiKey`: 火山方舟API密钥，可选（如未提供将使用环境变量ARK_API_KEY）
+- **响应示例**:
+  ```json
+  {
+    "success": true,
+    "result": {
+      "object": "list",
+      "data": [
+        {
+          "object": "embedding",
+          "embedding": [0.002359, -0.007719, 0.000664, ...],
+          "index": 0
+        }
+      ],
+      "model": "doubao-embedding",
+      "usage": {
+        "prompt_tokens": 11,
+        "total_tokens": 11
+      }
+    }
+  }
+  ```
+
+## 注意事项
+
+1. 调用火山大模型API需要API密钥，可以通过以下两种方式提供：
+   - 在请求中的`apiKey`参数
+   - 环境变量`ARK_API_KEY`
+2. 模型调用会消耗Token，请注意控制使用量以避免超出配额
+3. 请求中的messages格式需要符合OpenAI Chat格式规范
+4. API响应时间可能较长，请设置合理的请求超时时间 
