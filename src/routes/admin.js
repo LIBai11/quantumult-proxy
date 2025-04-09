@@ -919,7 +919,8 @@ router.post('/intercepted-requests/:id/release', async (req, res) => {
       return res.json({ 
         success: true, 
         message: `已放行拦截请求`,
-        request: result.request
+        request: result.request,
+        response: result.response
       });
     } else {
       return res.status(404).json({ 
@@ -983,7 +984,8 @@ router.post('/intercepted-requests/batch-release', async (req, res) => {
       results.push({
         id,
         success: result.success,
-        message: result.message
+        message: result.message,
+        response: result.response
       });
       
       if (result.success) {

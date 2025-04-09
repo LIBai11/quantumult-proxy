@@ -76,6 +76,35 @@ export async function captureResponse(req, res) {
     await db.saveResponse(capturedResponse);
     logger.info(`[${requestId}] 重写捕获响应已保存到数据库`);
 
+    // 检查是否有关联的拦截请求
+    if (capturedResponse.request_id && capturedResponse.request_id.startsWith('intercept_')) {
+      try {
+        // 查找对应的拦截请求
+        const interceptedRequest = await db.findInterceptedRequestById(capturedResponse.request_id);
+        
+        if (interceptedRequest) {
+          // 将响应记录到拦截请求中
+          interceptedRequest.response = {
+            id: capturedResponse.id || `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+            request_id: capturedResponse.request_id,
+            status: capturedResponse.status || 200,
+            statusText: capturedResponse.statusText || '',
+            headers: capturedResponse.headers || {},
+            body: capturedResponse.body || '',
+            timestamp: capturedResponse.timestamp || new Date().toISOString()
+          };
+          
+          // 更新拦截请求数据库
+          await db.updateInterceptedRequest(capturedResponse.request_id, interceptedRequest);
+          logger.info(`[${requestId}] 响应已关联到拦截请求: ${capturedResponse.request_id}`);
+        } else {
+          logger.warn(`[${requestId}] 找不到对应的拦截请求: ${capturedResponse.request_id}`);
+        }
+      } catch (error) {
+        logger.error(`[${requestId}] 关联响应到拦截请求错误: ${error.message}`);
+      }
+    }
+
     // 返回成功响应
     return res.status(200).json({
       success: true,
@@ -133,6 +162,38 @@ export async function modifyResponse(req, res) {
       }
       
       logger.debug(`[${requestId}] 修改后的响应已保存到数据库`);
+      
+      // 检查是否有关联的拦截请求，并更新拦截请求中的响应信息
+      if (capturedResponse.request_id && capturedResponse.request_id.startsWith('intercept_')) {
+        try {
+          // 查找对应的拦截请求
+          const interceptedRequest = await db.findInterceptedRequestById(capturedResponse.request_id);
+          
+          if (interceptedRequest) {
+            // 将修改后的响应记录到拦截请求中
+            interceptedRequest.response = {
+              id: modifiedResponse.id || `modified_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              request_id: capturedResponse.request_id,
+              status: modifiedResponse.status || 200,
+              statusText: modifiedResponse.statusText || '',
+              headers: modifiedResponse.headers || {},
+              body: modifiedResponse.body || '',
+              modified: true,
+              matchedRule: modifiedResponse.matchedRule,
+              ruleName: modifiedResponse.ruleName,
+              timestamp: modifiedResponse.timestamp || new Date().toISOString()
+            };
+            
+            // 更新拦截请求数据库
+            await db.updateInterceptedRequest(capturedResponse.request_id, interceptedRequest);
+            logger.info(`[${requestId}] 修改后的响应已关联到拦截请求: ${capturedResponse.request_id}`);
+          } else {
+            logger.warn(`[${requestId}] 找不到对应的拦截请求: ${capturedResponse.request_id}`);
+          }
+        } catch (error) {
+          logger.error(`[${requestId}] 关联修改后的响应到拦截请求错误: ${error.message}`);
+        }
+      }
 
       // 清理返回给客户端的响应，移除内部属性
       const clientResponse = {
@@ -145,7 +206,34 @@ export async function modifyResponse(req, res) {
       logger.info(`[${requestId}] 返回修改后的响应`);
       return res.status(200).json(clientResponse);
     } else {
-      // 不修改响应
+      // 不修改响应，但仍需检查是否关联到拦截请求
+      if (capturedResponse.request_id && capturedResponse.request_id.startsWith('intercept_')) {
+        try {
+          // 查找对应的拦截请求
+          const interceptedRequest = await db.findInterceptedRequestById(capturedResponse.request_id);
+          
+          if (interceptedRequest) {
+            // 将原始响应记录到拦截请求中
+            interceptedRequest.response = {
+              id: capturedResponse.id || `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+              request_id: capturedResponse.request_id,
+              status: capturedResponse.status || 200,
+              statusText: capturedResponse.statusText || '',
+              headers: capturedResponse.headers || {},
+              body: capturedResponse.body || '',
+              modified: false,
+              timestamp: capturedResponse.timestamp || new Date().toISOString()
+            };
+            
+            // 更新拦截请求数据库
+            await db.updateInterceptedRequest(capturedResponse.request_id, interceptedRequest);
+            logger.info(`[${requestId}] 原始响应已关联到拦截请求: ${capturedResponse.request_id}`);
+          }
+        } catch (error) {
+          logger.error(`[${requestId}] 关联原始响应到拦截请求错误: ${error.message}`);
+        }
+      }
+      
       logger.info(`[${requestId}] 未匹配到任何响应修改规则，不修改响应`);
       return res.status(200).json({
         modified: false

@@ -169,6 +169,10 @@ function handleRequestCapture() {
       headers: $request.headers,
       body: $request.body || null
     };
+    
+    // 在请求头中添加请求ID，用于后续响应匹配
+    const modifiedHeaders = { ...$request.headers };
+    modifiedHeaders['X-Capture-Request-Id'] = requestId;
 
     // 发送请求到捕获服务器并等待拦截判断
     sendToCaptureServer(requestInfo, '/api/capture/request')
@@ -185,6 +189,11 @@ function handleRequestCapture() {
             
             if (result.headers) {
               modifiedRequest.headers = result.headers;
+              // 确保修改后的请求仍然包含请求ID
+              modifiedRequest.headers['X-Capture-Request-Id'] = requestId;
+            } else {
+              // 使用添加了请求ID的请求头
+              modifiedRequest.headers = modifiedHeaders;
             }
             
             if (result.body) {
@@ -197,7 +206,10 @@ function handleRequestCapture() {
               $done({
                 response: {
                   status: result.status || 403,
-                  headers: { 'Content-Type': 'application/json' },
+                  headers: { 
+                    'Content-Type': 'application/json',
+                    'X-Capture-Request-Id': requestId
+                  },
                   body: JSON.stringify({
                     error: 'Request intercepted and rejected',
                     requestId: requestId
@@ -215,17 +227,25 @@ function handleRequestCapture() {
             }
           }
           
-          // 请求未被拦截或无需修改，直接放行
+          // 请求未被拦截或无需修改，直接放行，但添加请求ID头
           log(`请求处理完成: ${requestId}`);
-          $done({});
+          $done({
+            headers: modifiedHeaders
+          });
         } catch (parseError) {
           log(`解析拦截响应失败: ${parseError.message}`);
-          $done({});
+          // 即使解析失败，也添加请求ID头
+          $done({
+            headers: modifiedHeaders
+          });
         }
       })
       .catch(error => {
         log(`请求拦截服务调用失败: ${error}`);
-        $done({});
+        // 即使服务调用失败，也添加请求ID头
+        $done({
+          headers: modifiedHeaders
+        });
       });
   } catch (error) {
     log(`处理请求失败: ${error.message}`);
@@ -252,17 +272,23 @@ function handleResponseCapture() {
 
     log(`捕获响应: ${$request.method} ${$request.url}`);
 
-    // 基于URL特征重新生成匹配的请求ID
-    // 在实际环境中，这种匹配方式不是100%准确，但对于大多数场景足够用
-    const timestamp = Date.now();
-    const urlHash = $request.url.replace(/[^a-z0-9]/gi, '').substring(0, 8);
-
-    // 尝试提取请求头中可能存在的请求ID
-    const requestId = $request.headers['X-Capture-Request-Id'] || `req_${timestamp}_${urlHash}`;
+    // 尝试从请求头中获取请求ID
+    const requestId = $request.headers['X-Capture-Request-Id'];
+    
+    // 如果无法获取请求ID，则生成一个基于URL的ID
+    const fallbackId = (() => {
+      const timestamp = Date.now();
+      const urlHash = $request.url.replace(/[^a-z0-9]/gi, '').substring(0, 8);
+      return `req_${timestamp}_${urlHash}`;
+    })();
+    
+    const actualRequestId = requestId || fallbackId;
+    
+    log(`响应关联到请求ID: ${actualRequestId}`);
 
     // 提取响应信息
     const responseInfo = {
-      request_id: requestId,
+      request_id: actualRequestId,
       timestamp: getCurrentTime(),
       url: $request.url,
       method: $request.method,
@@ -290,32 +316,72 @@ function handleResponseCapture() {
                 body: modifyData.body || $response.body
               };
 
+              // 确保修改后的响应保留关联的请求ID
+              modifiedResponse.headers = modifiedResponse.headers || {};
+              modifiedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+
               log(`返回修改后的响应: ${modifiedResponse.body.substring(0, 100)}`);
               $done(modifiedResponse);
             } else {
               // 无修改，发送原始响应信息到捕获服务器（只用于记录）
-              sendToCaptureServer(responseInfo, '/api/capture/response');
+              sendToCaptureServer(responseInfo, '/api/capture/response')
+                .then(() => {
+                  log(`响应已记录并关联到请求ID: ${actualRequestId}`);
+                })
+                .catch(err => {
+                  log(`记录响应出错: ${err.message}`);
+                });
+              
+              // 添加请求ID到响应头，方便后续跟踪
+              const enhancedResponse = { ...$response };
+              enhancedResponse.headers = enhancedResponse.headers || {};
+              enhancedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+              
               log(`无需修改响应: ${$request.url}`);
-              $done($response);
+              $done(enhancedResponse);
             }
           } catch (parseError) {
             log(`解析修改响应失败: ${parseError.message}`);
             // 解析错误，发送原始响应信息到捕获服务器（只用于记录）
             sendToCaptureServer(responseInfo, '/api/capture/response');
-            $done($response);
+            
+            // 添加请求ID到响应头
+            const enhancedResponse = { ...$response };
+            enhancedResponse.headers = enhancedResponse.headers || {};
+            enhancedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+            
+            $done(enhancedResponse);
           }
         })
         .catch(error => {
           log(`获取修改响应失败: ${error}`);
           // 错误时也发送原始响应信息到捕获服务器（只用于记录）
           sendToCaptureServer(responseInfo, '/api/capture/response');
-          $done($response);
+          
+          // 添加请求ID到响应头
+          const enhancedResponse = { ...$response };
+          enhancedResponse.headers = enhancedResponse.headers || {};
+          enhancedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+          
+          $done(enhancedResponse);
         });
     } else {
       // 不启用修改功能时，只是发送响应信息到捕获服务器
-      sendToCaptureServer(responseInfo, '/api/capture/response');
-      log(`响应处理完成: ${requestId}`);
-      $done($response);
+      sendToCaptureServer(responseInfo, '/api/capture/response')
+        .then(() => {
+          log(`响应已记录并关联到请求ID: ${actualRequestId}`);
+        })
+        .catch(err => {
+          log(`记录响应出错: ${err.message}`);
+        });
+      
+      // 添加请求ID到响应头
+      const enhancedResponse = { ...$response };
+      enhancedResponse.headers = enhancedResponse.headers || {};
+      enhancedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+      
+      log(`响应处理完成: ${actualRequestId}`);
+      $done(enhancedResponse);
     }
   } catch (error) {
     log(`处理响应失败: ${error.message}`);

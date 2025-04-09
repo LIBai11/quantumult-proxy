@@ -11,13 +11,13 @@ if (!fs.existsSync(dbDir)) {
 }
 
 // 数据库文件路径
-const requestsDbPath = join(dbDir, 'requests.json');
-const responsesDbPath = join(dbDir, 'responses.json');
-const modifiedResponsesDbPath = join(dbDir, 'modified_responses.json');
-const captureRulesDbPath = join(dbDir, 'capture_rules.json');
-const responseRulesDbPath = join(dbDir, 'response_rules.json');
-const interceptRulesDbPath = join(dbDir, 'intercept_rules.json');
-const interceptedRequestsDbPath = join(dbDir, 'intercepted_requests.json');
+const requestsDbPath = join(dbDir, 'requests.json'); // 捕获的 request 信息
+const responsesDbPath = join(dbDir, 'responses.json'); // 捕获的 response 信息
+const modifiedResponsesDbPath = join(dbDir, 'modified_responses.json'); // 修改后的 response 信息
+const captureRulesDbPath = join(dbDir, 'capture_rules.json'); // response 捕获规则
+const responseRulesDbPath = join(dbDir, 'response_rules.json'); // response 修改规则
+const interceptRulesDbPath = join(dbDir, 'intercept_rules.json'); // request 拦截规则
+const interceptedRequestsDbPath = join(dbDir, 'intercepted_requests.json');  // 捕获的 request 信息
 
 // 捕获状态 - true表示正在捕获，false表示暂停
 let captureEnabled = true;
@@ -1581,6 +1581,65 @@ async function saveInterceptedRequest(request) {
       modified: ruleResult.modified || false
     };
     
+    // 如果是自动放行的请求，获取并记录响应
+    let responseData = null;
+    if (interceptedRequest.autoReleased) {
+      try {
+        // 发送请求获取实际响应
+        const headers = { ...request.headers };
+        delete headers['content-length']; // 避免长度不匹配问题
+        
+        const response = await fetch(request.url, {
+          method: request.method,
+          headers: headers,
+          body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined
+        });
+        
+        // 读取响应数据
+        const responseBody = await response.text();
+        const responseHeaders = {};
+        response.headers.forEach((value, key) => {
+          responseHeaders[key] = value;
+        });
+        
+        // 创建响应对象
+        responseData = {
+          id: `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          request_id: requestId,
+          status: response.status,
+          statusText: response.statusText,
+          headers: responseHeaders,
+          body: responseBody,
+          timestamp: new Date().toISOString()
+        };
+        
+        // 将响应保存到拦截请求中
+        interceptedRequest.response = responseData;
+        
+        // 同时保存到响应数据库
+        await responsesDb.read();
+        responsesDb.data.push(responseData);
+        await responsesDb.write();
+      } catch (error) {
+        console.error('自动放行请求获取响应错误:', error);
+        // 创建错误响应
+        responseData = {
+          id: `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+          request_id: requestId,
+          status: 500,
+          statusText: 'Error',
+          headers: {},
+          body: `获取响应失败: ${error.message}`,
+          timestamp: new Date().toISOString(),
+          error: true
+        };
+        
+        // 将错误响应保存到拦截请求中
+        interceptedRequest.response = responseData;
+        interceptedRequest.responseError = error.message;
+      }
+    }
+    
     // 保存到数据库
     interceptedRequestsDb.data.push(interceptedRequest);
     await interceptedRequestsDb.write();
@@ -1589,7 +1648,8 @@ async function saveInterceptedRequest(request) {
       success: true,
       message: ruleResult.matched ? '请求已拦截' : '请求已自动放行',
       request: interceptedRequest,
-      matched: ruleResult.matched
+      matched: ruleResult.matched,
+      response: responseData
     };
   } catch (error) {
     console.error('保存拦截请求错误:', error);
@@ -1605,15 +1665,19 @@ async function saveInterceptedRequest(request) {
  */
 async function getInterceptedRequestsPaginated(page = 1, limit = 20, host = null, keyword = null, isRegex = false, includeAutoReleased = true) {
   try {
-    await interceptedRequestsDb.read();
-    
-    let filteredRequests = [...interceptedRequestsDb.data];
-    
-    // 如果不包含自动放行的请求，进行过滤
-    if (!includeAutoReleased) {
-      filteredRequests = filteredRequests.filter(req => !req.autoReleased);
+    // 根据 includeAutoReleased 参数决定使用哪个数据库
+    let allRequests;
+    if (includeAutoReleased) {
+      await requestsDb.read();
+      allRequests = [...requestsDb.data];
+    } else {
+      await interceptedRequestsDb.read();
+      allRequests = [...interceptedRequestsDb.data];
     }
-    
+
+    // 应用过滤条件
+    let filteredRequests = [...allRequests];
+
     // 按主机过滤
     if (host) {
       filteredRequests = filteredRequests.filter(req => {
@@ -1625,52 +1689,50 @@ async function getInterceptedRequestsPaginated(page = 1, limit = 20, host = null
         }
       });
     }
-    
-    // 关键字搜索
+
+    // 按关键字过滤
     if (keyword) {
-      const searchPattern = isRegex ? new RegExp(keyword, 'i') : keyword.toLowerCase();
-      
-      filteredRequests = filteredRequests.filter(req => {
-        const searchText = JSON.stringify({
-          url: req.url,
-          method: req.method,
-          headers: req.headers,
-          body: req.body
-        }).toLowerCase();
-        
-        return isRegex ? searchPattern.test(searchText) : searchText.includes(searchPattern);
-      });
+      if (isRegex) {
+        try {
+          const regex = new RegExp(keyword, 'i');
+          filteredRequests = filteredRequests.filter(req => regex.test(req.url));
+        } catch (e) {
+          console.error('Invalid regex:', e);
+        }
+      } else {
+        const lowercaseKeyword = keyword.toLowerCase();
+        filteredRequests = filteredRequests.filter(req => 
+          req.url.toLowerCase().includes(lowercaseKeyword)
+        );
+      }
     }
-    
+
+    // 按时间倒序排序
+    filteredRequests.sort((a, b) => {
+      const dateA = a.timestamp || a.interceptedAt || new Date(0);
+      const dateB = b.timestamp || b.interceptedAt || new Date(0);
+      return new Date(dateB) - new Date(dateA);
+    });
+
     // 计算分页
-    const totalItems = filteredRequests.length;
-    const totalPages = Math.ceil(totalItems / limit);
-    const currentPage = Math.min(Math.max(1, page), totalPages);
-    const startIndex = (currentPage - 1) * limit;
+    const total = filteredRequests.length;
+    const totalPages = Math.ceil(total / limit);
+    const startIndex = (page - 1) * limit;
     const endIndex = startIndex + limit;
-    
-    // 按时间倒序排序并分页
-    const paginatedRequests = filteredRequests
-      .sort((a, b) => new Date(b.interceptedAt) - new Date(a.interceptedAt))
-      .slice(startIndex, endIndex);
-    
+    const paginatedRequests = filteredRequests.slice(startIndex, endIndex);
+
     return {
-      totalItems,
-      totalPages,
-      currentPage,
-      pageSize: limit,
-      data: paginatedRequests
+      requests: paginatedRequests,
+      pagination: {
+        total,
+        totalPages,
+        currentPage: page,
+        limit
+      }
     };
   } catch (error) {
-    console.error('分页获取拦截请求错误:', error);
-    return {
-      totalItems: 0,
-      totalPages: 0,
-      currentPage: page,
-      pageSize: limit,
-      data: [],
-      error: error.message
-    };
+    console.error('获取拦截请求分页数据错误:', error);
+    throw error;
   }
 }
 
@@ -1764,13 +1826,74 @@ async function releaseInterceptedRequest(requestId) {
     request.released = true;
     request.releasedAt = new Date().toISOString();
     
-    // 保存回数据库
+    // 构造并保存响应信息
+    let responseData = null;
+    
+    try {
+      // 这里发送请求获取实际响应
+      // 注意：这里应根据实际项目需求实现发送请求的逻辑
+      // 以下是一个简单的示例，使用fetch API发送请求
+      const headers = { ...request.headers };
+      delete headers['content-length']; // 避免长度不匹配问题
+      
+      const response = await fetch(request.url, {
+        method: request.method,
+        headers: headers,
+        body: request.method !== 'GET' && request.method !== 'HEAD' ? request.body : undefined
+      });
+      
+      // 读取响应数据
+      const responseBody = await response.text();
+      const responseHeaders = {};
+      response.headers.forEach((value, key) => {
+        responseHeaders[key] = value;
+      });
+      
+      // 创建响应对象
+      responseData = {
+        id: `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        request_id: request.id,
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+        body: responseBody,
+        timestamp: new Date().toISOString()
+      };
+      
+      // 将响应保存到拦截请求中
+      request.response = responseData;
+      
+      // 同时保存到响应数据库
+      await responsesDb.read();
+      responsesDb.data.push(responseData);
+      await responsesDb.write();
+    } catch (error) {
+      console.error('获取请求响应错误:', error);
+      // 创建错误响应
+      responseData = {
+        id: `response_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        request_id: request.id,
+        status: 500,
+        statusText: 'Error',
+        headers: {},
+        body: `获取响应失败: ${error.message}`,
+        timestamp: new Date().toISOString(),
+        error: true
+      };
+      
+      // 将错误响应保存到拦截请求中
+      request.response = responseData;
+      request.responseError = error.message;
+    }
+    
+    // 保存回拦截请求数据库
     await interceptedRequestsDb.write();
     
     return {
       success: true,
       message: '请求已放行',
-      request
+      request,
+      response: responseData
     };
   } catch (error) {
     console.error('放行拦截请求错误:', error);
@@ -1882,6 +2005,45 @@ async function getInterceptStats() {
   }
 }
 
+/**
+ * 更新拦截请求信息
+ */
+async function updateInterceptedRequest(requestId, updatedRequest) {
+  try {
+    await interceptedRequestsDb.read();
+    
+    const index = interceptedRequestsDb.data.findIndex(req => req.id === requestId);
+    if (index === -1) {
+      return {
+        success: false,
+        message: '找不到指定的拦截请求'
+      };
+    }
+    
+    // 更新拦截请求
+    interceptedRequestsDb.data[index] = {
+      ...interceptedRequestsDb.data[index],
+      ...updatedRequest,
+      updatedAt: new Date().toISOString()
+    };
+    
+    // 保存回数据库
+    await interceptedRequestsDb.write();
+    
+    return {
+      success: true,
+      message: '拦截请求已更新',
+      request: interceptedRequestsDb.data[index]
+    };
+  } catch (error) {
+    console.error('更新拦截请求错误:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
 // 初始化数据库
 initDb();
 
@@ -1937,5 +2099,6 @@ export default {
   deleteInterceptedRequestById,
   clearAllInterceptedRequests,
   releaseInterceptedRequest,
-  getInterceptStats
+  getInterceptStats,
+  updateInterceptedRequest
 }; 
