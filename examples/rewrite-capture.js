@@ -125,6 +125,12 @@ function generateRequestId(request) {
   return `req_${timestamp}_${urlHash}_${random}`;
 }
 
+// 辅助函数：获取格式化的日期时间
+function getFormattedDateTime() {
+  const now = new Date();
+  return now.toISOString();
+}
+
 // 辅助函数：检查响应是否为JSON格式
 function isJsonResponse(response) {
   if (!response || !response.headers) {
@@ -164,6 +170,7 @@ function handleRequestCapture() {
     const requestInfo = {
       id: requestId,
       timestamp: getCurrentTime(),
+      requestTime: getFormattedDateTime(),
       method: $request.method,
       url: $request.url,
       headers: $request.headers,
@@ -171,8 +178,9 @@ function handleRequestCapture() {
     };
     
     // 在请求头中添加请求ID，用于后续响应匹配
-    const modifiedHeaders = { ...$request.headers };
-    modifiedHeaders['X-Capture-Request-Id'] = requestId;
+    // 注意：不创建新对象，直接修改原始请求头，确保一致性
+    $request.headers['X-Capture-Request-Id'] = requestId;
+    $request.headers['X-Capture-Request-Time'] = getFormattedDateTime();
 
     // 发送请求到捕获服务器并等待拦截判断
     sendToCaptureServer(requestInfo, '/api/capture/request')
@@ -191,9 +199,10 @@ function handleRequestCapture() {
               modifiedRequest.headers = result.headers;
               // 确保修改后的请求仍然包含请求ID
               modifiedRequest.headers['X-Capture-Request-Id'] = requestId;
+              modifiedRequest.headers['X-Capture-Request-Time'] = getFormattedDateTime();
             } else {
               // 使用添加了请求ID的请求头
-              modifiedRequest.headers = modifiedHeaders;
+              modifiedRequest.headers = $request.headers;
             }
             
             if (result.body) {
@@ -208,7 +217,8 @@ function handleRequestCapture() {
                   status: result.status || 403,
                   headers: { 
                     'Content-Type': 'application/json',
-                    'X-Capture-Request-Id': requestId
+                    'X-Capture-Request-Id': requestId,
+                    'X-Capture-Request-Time': getFormattedDateTime()
                   },
                   body: JSON.stringify({
                     error: 'Request intercepted and rejected',
@@ -230,13 +240,13 @@ function handleRequestCapture() {
           // 请求未被拦截或无需修改，直接放行，但添加请求ID头
           log(`请求处理完成: ${requestId}`);
           $done({
-            headers: modifiedHeaders
+            headers: $request.headers
           });
         } catch (parseError) {
           log(`解析拦截响应失败: ${parseError.message}`);
           // 即使解析失败，也添加请求ID头
           $done({
-            headers: modifiedHeaders
+            headers: $request.headers
           });
         }
       })
@@ -244,7 +254,7 @@ function handleRequestCapture() {
         log(`请求拦截服务调用失败: ${error}`);
         // 即使服务调用失败，也添加请求ID头
         $done({
-          headers: modifiedHeaders
+          headers: $request.headers
         });
       });
   } catch (error) {
@@ -284,6 +294,10 @@ function handleResponseCapture() {
     
     const actualRequestId = requestId || fallbackId;
     
+    // 获取请求时间和响应时间
+    const requestTime = $request.headers['X-Capture-Request-Time'] || null;
+    const responseTime = getFormattedDateTime();
+    
     log(`响应关联到请求ID: ${actualRequestId}`);
 
     // 提取响应信息
@@ -295,7 +309,9 @@ function handleResponseCapture() {
       status: $response.status || 200,
       headers: $response.headers,
       body: $response.body || null,
-      body_size: $response.body ? $response.body.length : 0
+      body_size: $response.body ? $response.body.length : 0,
+      requestTime: requestTime,
+      responseTime: responseTime
     };
 
     if (enableResponseModification) {
@@ -316,9 +332,13 @@ function handleResponseCapture() {
                 body: modifyData.body || $response.body
               };
 
-              // 确保修改后的响应保留关联的请求ID
+              // 确保修改后的响应保留关联的请求ID和时间信息
               modifiedResponse.headers = modifiedResponse.headers || {};
               modifiedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+              modifiedResponse.headers['X-Capture-Request-Time'] = requestTime;
+              modifiedResponse.headers['X-Capture-Response-Time'] = responseTime;
+              modifiedResponse.headers['X-Capture-Release-Type'] = modifyData.releaseType || 'auto';
+              modifiedResponse.headers['X-Capture-Released-At'] = modifyData.releasedAt || responseTime;
 
               log(`返回修改后的响应: ${modifiedResponse.body.substring(0, 100)}`);
               $done(modifiedResponse);
@@ -332,10 +352,18 @@ function handleResponseCapture() {
                   log(`记录响应出错: ${err.message}`);
                 });
               
-              // 添加请求ID到响应头，方便后续跟踪
+              // 添加请求ID和时间信息到响应头，方便后续跟踪
               const enhancedResponse = { ...$response };
               enhancedResponse.headers = enhancedResponse.headers || {};
               enhancedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+              enhancedResponse.headers['X-Capture-Request-Time'] = requestTime;
+              enhancedResponse.headers['X-Capture-Response-Time'] = responseTime;
+              
+              // 如果是自动放行的请求，添加放行信息
+              if (modifyData && modifyData.autoReleased) {
+                enhancedResponse.headers['X-Capture-Release-Type'] = 'auto';
+                enhancedResponse.headers['X-Capture-Released-At'] = modifyData.releasedAt || responseTime;
+              }
               
               log(`无需修改响应: ${$request.url}`);
               $done(enhancedResponse);
@@ -345,10 +373,12 @@ function handleResponseCapture() {
             // 解析错误，发送原始响应信息到捕获服务器（只用于记录）
             sendToCaptureServer(responseInfo, '/api/capture/response');
             
-            // 添加请求ID到响应头
+            // 添加请求ID和时间信息到响应头
             const enhancedResponse = { ...$response };
             enhancedResponse.headers = enhancedResponse.headers || {};
             enhancedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+            enhancedResponse.headers['X-Capture-Request-Time'] = requestTime;
+            enhancedResponse.headers['X-Capture-Response-Time'] = responseTime;
             
             $done(enhancedResponse);
           }
@@ -358,10 +388,12 @@ function handleResponseCapture() {
           // 错误时也发送原始响应信息到捕获服务器（只用于记录）
           sendToCaptureServer(responseInfo, '/api/capture/response');
           
-          // 添加请求ID到响应头
+          // 添加请求ID和时间信息到响应头
           const enhancedResponse = { ...$response };
           enhancedResponse.headers = enhancedResponse.headers || {};
           enhancedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+          enhancedResponse.headers['X-Capture-Request-Time'] = requestTime;
+          enhancedResponse.headers['X-Capture-Response-Time'] = responseTime;
           
           $done(enhancedResponse);
         });
@@ -375,10 +407,12 @@ function handleResponseCapture() {
           log(`记录响应出错: ${err.message}`);
         });
       
-      // 添加请求ID到响应头
+      // 添加请求ID和时间信息到响应头
       const enhancedResponse = { ...$response };
       enhancedResponse.headers = enhancedResponse.headers || {};
       enhancedResponse.headers['X-Capture-Request-Id'] = actualRequestId;
+      enhancedResponse.headers['X-Capture-Request-Time'] = requestTime;
+      enhancedResponse.headers['X-Capture-Response-Time'] = responseTime;
       
       log(`响应处理完成: ${actualRequestId}`);
       $done(enhancedResponse);

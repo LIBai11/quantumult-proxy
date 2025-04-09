@@ -1553,8 +1553,8 @@ async function saveInterceptedRequest(request) {
 
     await interceptedRequestsDb.read();
     
-    // 生成请求ID
-    const requestId = `intercept_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    // 生成或使用请求ID
+    const requestId = request.id || `intercept_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     // 保存原始请求
     const originalRequest = { ...request };
@@ -1576,6 +1576,8 @@ async function saveInterceptedRequest(request) {
       autoReleased: !ruleResult.matched, // 如果没有匹配规则，标记为自动放行
       released: !ruleResult.matched, // 如果没有匹配规则，直接标记为已放行
       releasedAt: !ruleResult.matched ? new Date().toISOString() : null,
+      // 添加放行类型和时间记录
+      releaseType: !ruleResult.matched ? 'auto' : null,
       matchedRuleId: ruleResult.ruleId || null,
       ruleName: ruleResult.ruleName || null,
       modified: ruleResult.modified || false
@@ -1825,6 +1827,7 @@ async function releaseInterceptedRequest(requestId) {
     // 为被放行的请求添加放行标记
     request.released = true;
     request.releasedAt = new Date().toISOString();
+    request.releaseType = 'manual'; // 标记为手动放行
     
     // 构造并保存响应信息
     let responseData = null;
@@ -1918,6 +1921,12 @@ async function getInterceptStats() {
     const releasedRequests = allIntercepted.filter(req => req.released === true);
     const releasedCount = releasedRequests.length;
     
+    // 按放行类型统计
+    const autoReleasedRequests = releasedRequests.filter(req => req.releaseType === 'auto');
+    const manualReleasedRequests = releasedRequests.filter(req => req.releaseType === 'manual');
+    const autoReleasedCount = autoReleasedRequests.length;
+    const manualReleasedCount = manualReleasedRequests.length;
+    
     // 仍被拦截的请求（未放行）
     const stillInterceptedCount = totalIntercepted - releasedCount;
     
@@ -1952,6 +1961,8 @@ async function getInterceptStats() {
               hostname,
               interceptedCount: 0,
               releasedCount: 0,
+              autoReleasedCount: 0,
+              manualReleasedCount: 0,
               stillInterceptedCount: 0,
               modifiedCount: 0
             };
@@ -1961,6 +1972,11 @@ async function getInterceptStats() {
           
           if (req.released) {
             hostStats[hostname].releasedCount++;
+            if (req.releaseType === 'auto') {
+              hostStats[hostname].autoReleasedCount++;
+            } else if (req.releaseType === 'manual') {
+              hostStats[hostname].manualReleasedCount++;
+            }
           } else {
             hostStats[hostname].stillInterceptedCount++;
           }
@@ -1986,6 +2002,8 @@ async function getInterceptStats() {
     return {
       totalIntercepted,
       releasedCount,
+      autoReleasedCount,
+      manualReleasedCount,
       stillInterceptedCount,
       modifiedCount,
       hosts: Object.values(hostStats).sort((a, b) => b.interceptedCount - a.interceptedCount),
@@ -1996,6 +2014,8 @@ async function getInterceptStats() {
     return {
       totalIntercepted: 0,
       releasedCount: 0,
+      autoReleasedCount: 0,
+      manualReleasedCount: 0,
       stillInterceptedCount: 0,
       modifiedCount: 0,
       hosts: [],

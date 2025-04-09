@@ -8,7 +8,7 @@ dotenv.config();
 // 基本配置
 const config = {
   port: process.env.PORT || 3000,
-  logLevel: process.env.LOG_LEVEL || 'debug',
+  logLevel: process.env.LOG_LEVEL || 'info',
   bodyLimit: process.env.BODY_LIMIT || '10mb',
   retentionDays: parseInt(process.env.RETENTION_DAYS || '7', 10)
 };

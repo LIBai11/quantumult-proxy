@@ -920,6 +920,8 @@ router.post('/intercepted-requests/:id/release', async (req, res) => {
         success: true, 
         message: `已放行拦截请求`,
         request: result.request,
+        releaseType: result.request?.releaseType || 'manual',
+        releasedAt: result.request?.releasedAt,
         response: result.response
       });
     } else {
@@ -985,6 +987,8 @@ router.post('/intercepted-requests/batch-release', async (req, res) => {
         id,
         success: result.success,
         message: result.message,
+        releaseType: result.request?.releaseType || 'manual',
+        releasedAt: result.request?.releasedAt,
         response: result.response
       });
       
